@@ -6,17 +6,20 @@ if (!isset($_SESSION['user_id']) || !$_SESSION['is_admin']) {
     exit();
 }
 
+// Expire stale reservations
+RentalService::expireStaleBookings($conn);
+
 // --- STATS ---
-$revenue = $conn->query("SELECT SUM(total_amount) AS total FROM orders WHERE order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND status != 'cancelled'")->fetch_assoc()['total'] ?? 0;
+$revenue = $conn->query("SELECT SUM(total_amount) AS total FROM orders WHERE order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND status IN ('Approved', 'Active', 'Completed')")->fetch_assoc()['total'] ?? 0;
 $orders = $conn->query("SELECT COUNT(*) AS cnt FROM orders WHERE order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)")->fetch_assoc()['cnt'] ?? 0;
-$new_customers = $conn->query("SELECT COUNT(*) AS cnt FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")->fetch_assoc()['cnt'] ?? 0;
-$avg_order = $conn->query("SELECT AVG(total_amount) AS avg FROM orders WHERE order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND status != 'cancelled'")->fetch_assoc()['avg'] ?? 0;
+$new_customers = $conn->query("SELECT COUNT(*) AS cnt FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND is_admin = 0")->fetch_assoc()['cnt'] ?? 0;
+$avg_order = $conn->query("SELECT AVG(total_amount) AS avg FROM orders WHERE order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND status IN ('Approved', 'Active', 'Completed')")->fetch_assoc()['avg'] ?? 0;
 
 // --- WEEKLY CHART ---
 $weekly = $conn->query("
     SELECT DATE(order_date) AS day, SUM(total_amount) AS daily_total
     FROM orders
-    WHERE order_date >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND status != 'cancelled'
+    WHERE order_date >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND status IN ('Approved', 'Active', 'Completed')
     GROUP BY DATE(order_date)
 ");
 $chart = [];
@@ -33,7 +36,7 @@ foreach ($days as $d) {
 
 // --- RECENT ORDERS ---
 $recent_orders = $conn->query("
-    SELECT o.id, u.name AS customer, o.total_amount, o.status
+    SELECT o.id, o.booking_ref, u.name AS customer, o.total_amount, o.status
     FROM orders o
     JOIN users u ON o.user_id = u.id
     ORDER BY o.order_date DESC
@@ -78,6 +81,7 @@ $activity = $conn->query("
             <a class="active" href="dashboard.php"><span class="dot"></span>Overview</a>
             <a href="Product.php"><span class="dot"></span>Products</a>
             <a href="product_edit.php"><span class="dot"></span>Product Management</a>
+            <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
             <a href="categories.php"><span class="dot"></span>Categories</a>
             <a href="orders.php"><span class="dot"></span>Orders</a>
             <a href="users.php"><span class="dot"></span>Users</a>
@@ -152,7 +156,11 @@ $activity = $conn->query("
                             <tbody>
                             <?php while ($row = $recent_orders->fetch_assoc()): ?>
                             <tr>
-                                <td class="order-id">#<?= $row['id'] ?></td>
+                                <td class="order-id">
+                                    <a href="order_detail.php?id=<?= $row['id'] ?>" style="font-family:monospace; font-weight:bold;">
+                                        <?= htmlspecialchars($row['booking_ref'] ?: '#' . $row['id']) ?>
+                                    </a>
+                                </td>
                                 <td><?= htmlspecialchars($row['customer']) ?></td>
                                 <td><span class="status-pill status-pill--<?= strtolower($row['status']) ?>"><?= ucfirst($row['status']) ?></span></td>
                                 <td>$<?= number_format($row['total_amount'], 2) ?></td>

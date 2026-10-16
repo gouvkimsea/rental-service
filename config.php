@@ -57,4 +57,6 @@ function time_elapsed_string($datetime, $full = false) {
     return $string ? implode(', ', $string) . ' ago' : 'just now';
 }
 
+require_once __DIR__ . '/rental_service.php';
+
 ?>

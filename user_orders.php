@@ -5,24 +5,36 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-$user_id = $_SESSION['user_id'];
+$user_id = (int)$_SESSION['user_id'];
+$message = $_SESSION['message'] ?? '';
+$error = $_SESSION['error'] ?? '';
+unset($_SESSION['message'], $_SESSION['error']);
 
-// Handle cancel
+// Automatically expire stale pending bookings
+RentalService::expireStaleBookings($conn);
+
+// Handle cancellation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_order_id'])) {
-    /*if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
+    if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
         http_response_code(403);
-        die('Invalid request.');
-    }*/
+        die('Invalid CSRF token.');
+    }
     $cancel_id = (int)$_POST['cancel_order_id'];
-    $cancel_stmt = $conn->prepare("UPDATE orders SET status = 'Declined' WHERE id = ? AND user_id = ? AND status = 'Pending'");
-    $cancel_stmt->bind_param("ii", $cancel_id, $user_id);
-    $cancel_stmt->execute();
+    $reason = trim($_POST['cancel_reason'] ?? 'Cancelled by customer');
+    
+    $res = RentalService::cancelBooking($conn, $cancel_id, $user_id, $reason, false);
+    if ($res['success']) {
+        $_SESSION['message'] = $res['message'];
+    } else {
+        $_SESSION['error'] = $res['message'];
+    }
     header("Location: user_orders.php");
     exit();
 }
 
 $orders = $conn->prepare("
-    SELECT id, total_amount, status, order_date, start_date, end_date
+    SELECT id, booking_ref, total_amount, subtotal, deposit_amount, status, 
+           order_date, start_date, start_time, end_date, end_time, expires_at
     FROM orders
     WHERE user_id = ?
     ORDER BY order_date DESC
@@ -36,21 +48,45 @@ $result = $orders->get_result();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Orders</title>
+    <title>My Rental Bookings</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        .status-pill--active { background: #e0f2fe; color: #0284c7; }
+        .status-pill--completed { background: #dcfce7; color: #166534; }
+        .status-pill--expired { background: #f3f4f6; color: #6b7280; }
+        .status-pill--cancelled { background: #fee2e2; color: #b91c1c; }
+    </style>
 </head>
 <body>
-<div style="max-width: 800px; margin: 40px auto; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-    <h2>My Orders</h2>
+<div style="max-width: 900px; margin: 40px auto; padding: 25px; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+        <h2 style="margin:0;">My Rental Bookings</h2>
+        <a href="Service.php#catalog" class="submit-btn" style="text-decoration: none; padding: 8px 16px; font-size:13px;">Browse Vehicles</a>
+    </div>
+
+    <?php if ($message): ?>
+        <div class="alert alert-success" style="margin-bottom: 20px; padding: 12px; background: #dfe7d8; border-radius: 6px;">
+            <?= htmlspecialchars($message) ?>
+        </div>
+    <?php endif; ?>
+    <?php if ($error): ?>
+        <div class="alert alert-danger" style="margin-bottom: 20px; padding: 12px; background: #fee2e2; border-radius: 6px; color: #b91c1c;">
+            <?= htmlspecialchars($error) ?>
+        </div>
+    <?php endif; ?>
+
     <?php if ($result->num_rows === 0): ?>
-        <p>You have no orders yet.</p>
+        <div style="text-align: center; padding: 40px; color: #666;">
+            <p>You have not made any bookings yet.</p>
+            <a href="second1.php" class="submit-btn" style="text-decoration: none; display: inline-block; margin-top: 10px;">Explore Vehicles</a>
+        </div>
     <?php else: ?>
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Order #</th>
+                    <th>Booking Ref</th>
                     <th>Date Placed</th>
-                    <th>Rental Dates</th>
+                    <th>Rental Schedule</th>
                     <th>Total</th>
                     <th>Status</th>
                     <th>Action</th>
@@ -59,28 +95,44 @@ $result = $orders->get_result();
             <tbody>
             <?php while ($row = $result->fetch_assoc()): ?>
                 <tr>
-                    <td><a href="order_detail.php?id=<?= $row['id'] ?>">#<?= $row['id'] ?></a></td>
+                    <td>
+                        <a href="order_detail.php?id=<?= $row['id'] ?>" style="font-weight: bold; font-family: monospace;">
+                            <?= htmlspecialchars($row['booking_ref'] ?: '#' . $row['id']) ?>
+                        </a>
+                    </td>
                     <td><?= date('M j, Y', strtotime($row['order_date'])) ?></td>
                     <td style="font-size: 13px;">
-                        <?php if ($row['start_date']): ?>
-                            <?= date('M j', strtotime($row['start_date'])) ?> - <?= date('M j, Y', strtotime($row['end_date'])) ?>
+                        <?php if ($row['start_date'] && $row['end_date']): ?>
+                            <strong><?= date('M j', strtotime($row['start_date'])) ?></strong> (<?= date('g:i A', strtotime($row['start_time'])) ?>)
+                            <br>&rarr; <strong><?= date('M j, Y', strtotime($row['end_date'])) ?></strong> (<?= date('g:i A', strtotime($row['end_time'])) ?>)
                         <?php else: ?>
                             N/A
                         <?php endif; ?>
                     </td>
-                    <td>$<?= number_format($row['total_amount'], 2) ?></td>
+                    <td>
+                        <strong>$<?= number_format($row['total_amount'], 2) ?></strong>
+                        <?php if ($row['deposit_amount'] > 0): ?>
+                            <div style="font-size: 10px; color: #666;">Incl. $<?= number_format($row['deposit_amount'], 2) ?> deposit</div>
+                        <?php endif; ?>
+                    </td>
                     <td>
                         <span class="status-pill status-pill--<?= strtolower($row['status']) ?>">
                             <?= htmlspecialchars($row['status']) ?>
                         </span>
+                        <?php if ($row['status'] === 'Pending' && $row['expires_at']): ?>
+                            <div style="font-size: 10px; color: #b45309; margin-top: 2px;">
+                                Expires: <?= date('M j, g:i A', strtotime($row['expires_at'])) ?>
+                            </div>
+                        <?php endif; ?>
                     </td>
-                    <td>
-                        <a href="order_detail.php?id=<?= $row['id'] ?>" style="margin-right: 10px;">View</a>
-                        <?php if (strtolower($row['status']) === 'pending'): ?>
-                            <form method="post" style="display:inline-block;" onsubmit="return confirm('Are you sure you want to cancel this order?');">
+                    <td style="white-space: nowrap;">
+                        <a href="order_detail.php?id=<?= $row['id'] ?>" style="margin-right: 10px; font-size:13px;">View Details</a>
+                        <?php if (in_array($row['status'], ['Pending', 'Approved'])): ?>
+                            <form method="post" style="display:inline-block;" onsubmit="return confirmCancellation(this);">
                                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                 <input type="hidden" name="cancel_order_id" value="<?= $row['id'] ?>">
-                                <button type="submit" style="background:none; border:none; color:#a72d25; text-decoration:underline; cursor:pointer;">Cancel</button>
+                                <input type="hidden" name="cancel_reason" value="Customer requested cancellation">
+                                <button type="submit" style="background:none; border:none; color:#a72d25; text-decoration:underline; cursor:pointer; font-size:13px;">Cancel</button>
                             </form>
                         <?php endif; ?>
                     </td>
@@ -89,8 +141,19 @@ $result = $orders->get_result();
             </tbody>
         </table>
     <?php endif; ?>
-    <button class="submit-btn"><a href="Service.php#catalog" style="text-decoration: none; color: inherit;">Explore more</a></button>
     
+    <div style="margin-top: 20px;">
+        <a href="Service.php" style="text-decoration: none; color: #666; font-size: 13px;">&larr; Back to Home</a>
+    </div>
 </div>
+
+<script>
+function confirmCancellation(form) {
+    const reason = prompt('Please let us know the reason for cancellation (optional):', 'Change of travel plans');
+    if (reason === null) return false;
+    form.querySelector('[name="cancel_reason"]').value = reason || 'Customer requested cancellation';
+    return true;
+}
+</script>
 </body>
 </html>

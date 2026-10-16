@@ -5,84 +5,176 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-$user_id = $_SESSION['user_id'];
+$user_id = (int)$_SESSION['user_id'];
+$msg = '';
+$error = '';
 
-// Use prepared statement and fetch password for old-password verification
-$stmt = $conn->prepare("SELECT name, email, password FROM users WHERE id = ?");
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-$user = $stmt->get_result()->fetch_assoc();
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['new_password'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // CSRF validation
     if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
         http_response_code(403);
         die('Invalid request. Please go back and try again.');
     }
 
-    // Require current password before allowing a change
-    $current_pass = $_POST['current_password'] ?? '';
-    if (!password_verify($current_pass, $user['password'])) {
-        $msg = "Current password is incorrect.";
-    } else {
-        $new_pass = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
-        $upd = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
-        $upd->bind_param("si", $new_pass, $user_id);
-        if ($upd->execute()) {
-            $msg = "Password updated successfully.";
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'update_profile') {
+        $phone          = substr(trim($_POST['phone'] ?? ''), 0, 30);
+        $address        = substr(trim($_POST['address'] ?? ''), 0, 500);
+        $driver_license = substr(trim($_POST['driver_license'] ?? ''), 0, 50);
+        $id_card_number = substr(trim($_POST['id_card_number'] ?? ''), 0, 50);
+        $email          = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
+
+        if (!$email) {
+            $error = "Please provide a valid email address.";
         } else {
-            $msg = "Error updating password.";
+            // Check if email taken by someone else
+            $checkEmail = $conn->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
+            $checkEmail->bind_param("si", $email, $user_id);
+            $checkEmail->execute();
+            if ($checkEmail->get_result()->num_rows > 0) {
+                $error = "This email is already registered to another account.";
+            } else {
+                $stmt = $conn->prepare("
+                    UPDATE users 
+                    SET email = ?, phone = ?, address = ?, driver_license = ?, id_card_number = ? 
+                    WHERE id = ?
+                ");
+                $stmt->bind_param("sssssi", $email, $phone, $address, $driver_license, $id_card_number, $user_id);
+                if ($stmt->execute()) {
+                    $msg = "Profile information updated successfully.";
+                } else {
+                    $error = "Error updating profile.";
+                }
+            }
+        }
+    } elseif ($action === 'change_password') {
+        $stmt = $conn->prepare("SELECT password FROM users WHERE id = ?");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $currHash = $stmt->get_result()->fetch_assoc()['password'] ?? '';
+
+        $current_pass = $_POST['current_password'] ?? '';
+        $new_pass_raw = $_POST['new_password'] ?? '';
+
+        if (!password_verify($current_pass, $currHash) && $current_pass !== $currHash) {
+            $error = "Current password is incorrect.";
+        } elseif (strlen($new_pass_raw) < 6) {
+            $error = "New password must be at least 6 characters.";
+        } else {
+            $new_pass = password_hash($new_pass_raw, PASSWORD_DEFAULT);
+            $upd = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+            $upd->bind_param("si", $new_pass, $user_id);
+            if ($upd->execute()) {
+                $msg = "Password updated successfully.";
+            } else {
+                $error = "Error updating password.";
+            }
         }
     }
 }
+
+// Fetch current user details
+$stmt = $conn->prepare("SELECT name, email, phone, address, driver_license, id_card_number, created_at FROM users WHERE id = ?");
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$user = $stmt->get_result()->fetch_assoc();
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profile</title>
+    <title>Customer Profile</title>
     <link rel="stylesheet" href="style.css">
     <style>
-.profile {
-    width: 60px;
-    height: 60px;
-    background-color:#a72d25;
-    color: white;
-    border-radius: 50%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    font-size: 28px;
-    font-weight: bold;
-    font-family: Arial, sans-serif;
-}
-</style>
+        .profile {
+            width: 60px;
+            height: 60px;
+            background-color:#a72d25;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 26px;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+        }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .form-full { grid-column: span 2; }
+    </style>
 </head>
 <body>
-<div style="max-width:600px; margin:50px auto; padding:20px; background:#fff; border-radius:8px; box-shadow:0 0 10px rgba(0,0,0,0.1);">
-    <div class="profile" id="profile"><?= strtoupper(substr($user['name'], 0, 2)) ?></div>
-    <?php if (isset($msg)): ?><div class="alert"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
-    <p><strong>Username:</strong> <?= htmlspecialchars($user['name']) ?></p>
-    <p><strong>Email:</strong> <?= htmlspecialchars($user['email']) ?></p>
-    <hr>
-    <h3>Change Password</h3>
+<div style="max-width:700px; margin:40px auto; padding:25px; background:#fff; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.1);">
+    <div style="display:flex; align-items:center; gap:20px; margin-bottom:20px;">
+        <div class="profile"><?= strtoupper(substr($user['name'], 0, 2)) ?></div>
+        <div>
+            <h2 style="margin:0;"><?= htmlspecialchars($user['name']) ?></h2>
+            <div style="color:#666; font-size:13px;">Customer since <?= date('F Y', strtotime($user['created_at'])) ?></div>
+        </div>
+    </div>
+
+    <?php if ($msg): ?><div class="alert alert-success" style="margin-bottom:15px; padding:10px; background:#dfe7d8; border-radius:6px;"><?= htmlspecialchars($msg) ?></div><?php endif; ?>
+    <?php if ($error): ?><div class="alert alert-danger" style="margin-bottom:15px; padding:10px; background:#fee2e2; border-radius:6px; color:#b91c1c;"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+
+    <!-- Contact & Rental Verification Details -->
+    <h3 style="border-bottom:1px solid #eee; padding-bottom:8px; margin-top:20px;">Contact & Rental Information</h3>
+    <form method="post" style="margin-bottom: 30px;">
+        <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+        <input type="hidden" name="action" value="update_profile">
+
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Email Address</label>
+                <input type="email" name="email" value="<?= htmlspecialchars($user['email'] ?? '') ?>" required>
+            </div>
+            <div class="form-group">
+                <label>Phone Number</label>
+                <input type="tel" name="phone" value="<?= htmlspecialchars($user['phone'] ?? '') ?>" placeholder="+855 12 345 678">
+            </div>
+            <div class="form-group">
+                <label>Driver's License #</label>
+                <input type="text" name="driver_license" value="<?= htmlspecialchars($user['driver_license'] ?? '') ?>" placeholder="Required for car/motorcycle rentals">
+            </div>
+            <div class="form-group">
+                <label>National ID / Passport #</label>
+                <input type="text" name="id_card_number" value="<?= htmlspecialchars($user['id_card_number'] ?? '') ?>" placeholder="Identity verification">
+            </div>
+            <div class="form-group form-full">
+                <label>Residential / Hotel Address</label>
+                <textarea name="address" rows="2" placeholder="Your street address or hotel for rental delivery..."><?= htmlspecialchars($user['address'] ?? '') ?></textarea>
+            </div>
+        </div>
+        <button type="submit" class="submit-button" style="margin-top:10px;">Save Profile Details</button>
+    </form>
+
+    <!-- Change Password -->
+    <h3 style="border-bottom:1px solid #eee; padding-bottom:8px;">Change Password</h3>
     <form method="post">
         <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-        <br>
-        <div class="form-group">
-            <label>Current Password</label>
-            <input type="password" name="current_password" class="form-group" required>
+        <input type="hidden" name="action" value="change_password">
+
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Current Password</label>
+                <input type="password" name="current_password" required>
+            </div>
+            <div class="form-group">
+                <label>New Password (min 6 characters)</label>
+                <input type="password" name="new_password" required>
+            </div>
         </div>
-        <div class="form-group">
-            <label>New Password</label>
-            <input type="password" name="new_password" class="form-group" required>
-        </div>
-        <button type="submit" class="submit-button">Update Password</button>
+        <button type="submit" class="submit-button" style="margin-top:10px;">Update Password</button>
     </form>
-    <br>
-    <a href="logout.php" class="submit-button" style="display:inline-block; text-align:center; text-decoration:none; margin-top:8px;">Logout</a>
-    <a href="Service.php" class="site-nav">Back to Home</a>
+
+    <div style="margin-top:30px; display:flex; justify-content:space-between; align-items:center;">
+        <a href="Service.php" style="text-decoration:none; color:#666;">&larr; Back to Home</a>
+        <div>
+            <a href="user_orders.php" class="submit-button" style="text-decoration:none; display:inline-block; margin-right:10px;">My Bookings</a>
+            <a href="logout.php" style="color:#a72d25; text-decoration:none; font-weight:bold;">Logout</a>
+        </div>
+    </div>
 </div>
 </body>
 </html>

@@ -1,0 +1,91 @@
+<?php
+require_once 'config.php';
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    // Brute-force protection: lock out after 5 failed attempts
+    if (($_SESSION['login_attempts'] ?? 0) >= 5) {
+        $error_msg = "Too many failed attempts. Please close and reopen your browser to try again.";
+    } else {
+        $username = trim($_POST['username']);
+        $password = $_POST['password'];
+
+        $stmt = $conn->prepare("SELECT id, name, password, is_admin, is_active FROM users WHERE name = ?");
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($row = $result->fetch_assoc()) {
+            if ($row['is_active'] == 0) {
+                $error_msg = 'Your account has been disabled. Please contact support.';
+            } elseif (password_verify($password, $row['password']) || $password === $row['password']) {
+                if ($password === $row['password']) {
+                    $new_hash = password_hash($password, PASSWORD_DEFAULT);
+                    $up = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+                    $up->bind_param("si", $new_hash, $row['id']);
+                    $up->execute();
+                }
+                // Prevent session fixation — regenerate ID on privilege change
+                session_regenerate_id(true);
+                $_SESSION['login_attempts'] = 0;
+                $_SESSION['user_id']   = $row['id'];
+                $_SESSION['username']  = $row['name'];
+                $_SESSION['is_admin']  = $row['is_admin'];
+
+                if ($row['is_admin']) {
+                    header("Location: dashboard.php");
+                } else {
+                    header("Location: Service.php");
+                }
+                exit();
+            }
+        }
+        $_SESSION['login_attempts'] = ($_SESSION['login_attempts'] ?? 0) + 1;
+        $error_msg = "Invalid username or password.";
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Odibee+Sans&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="container">
+    <div class="row justify-content-center align-items-center vh-100">
+        <div class="col-md-5">
+            <div class="card shadow p-4 rounded-4">
+                <form method="post">
+                    <h2 class="text-center mb-4">Welcome to <br>JOUL Rental Service</h2>
+                    <?php if (isset($error_msg)): ?>
+                        <div class="alert alert-danger text-center py-2"><?= htmlspecialchars($error_msg) ?></div>
+                    <?php endif; ?>
+                    <div class="form-group mb-3">
+                        <label><b>Username</b></label>
+                        <input type="text" name="username" class="form-control" placeholder="Enter name" required>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label><b>Password</b></label>
+                        <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+                    </div>
+                    <div class="d-grid mb-3">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <button type="submit" class="submit-button">Log In</button>
+                            
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <p class="auth-switch">Don't have an account? <a href="signin.php">Sign up</a></p>
+            
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

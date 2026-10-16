@@ -38,9 +38,27 @@ if ($isHttps) {
 
 session_start();
 
+// Emit baseline HTTP security headers for web requests
+if (php_sapi_name() !== 'cli' && !headers_sent()) {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('X-XSS-Protection: 1; mode=block');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    if ($isHttps) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+}
+
 // Generate CSRF token once per session
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// Global CSRF token verification helper
+if (!function_exists('verify_csrf_token')) {
+    function verify_csrf_token(?string $token): bool {
+        return !empty($token) && !empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
+    }
 }
 
 $host = getenv('DB_HOST') ?: 'localhost';

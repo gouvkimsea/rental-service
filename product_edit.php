@@ -142,8 +142,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <a href="Product.php"><span class="dot"></span>Products</a>
             <a class="active" href="product_edit.php"><span class="dot"></span>Product Management</a>
+            <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
             <a href="categories.php"><span class="dot"></span>Categories</a>
             <a href="orders.php"><span class="dot"></span>Orders</a>
+            <a href="finance.php"><span class="dot"></span>Finance</a>
             <a href="users.php"><span class="dot"></span>Users</a>
         </nav> 
         <div class="sidebar-footer">

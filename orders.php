@@ -104,6 +104,7 @@ while ($row = $statsRes->fetch_assoc()) {
             <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
             <a href="categories.php"><span class="dot"></span>Categories</a>
             <a class="active" href="orders.php"><span class="dot"></span>Orders</a>
+            <a href="finance.php"><span class="dot"></span>Finance</a>
             <a href="users.php"><span class="dot"></span>Users</a>
         </nav>
         <div class="sidebar-footer">

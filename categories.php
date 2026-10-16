@@ -64,8 +64,10 @@ $categories = $conn->query("
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <a href="Product.php"><span class="dot"></span>Products</a>
             <a href="product_edit.php"><span class="dot"></span>Product Management</a>
+            <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
             <a class="active" href="categories.php"><span class="dot"></span>Categories</a>
             <a href="orders.php"><span class="dot"></span>Orders</a>
+            <a href="finance.php"><span class="dot"></span>Finance</a>
             <a href="users.php"><span class="dot"></span>Users</a>
         </nav>
         <div class="sidebar-footer">

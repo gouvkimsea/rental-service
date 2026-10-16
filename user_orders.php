@@ -61,7 +61,17 @@ $result = $orders->get_result();
 <div style="max-width: 900px; margin: 40px auto; padding: 25px; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
         <h2 style="margin:0;">My Rental Bookings</h2>
-        <a href="Service.php#catalog" class="submit-btn" style="text-decoration: none; padding: 8px 16px; font-size:13px;">Browse Vehicles</a>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
+                🔔 Notifications <?php 
+                    $uNotif = RentalService::getUnreadNotificationCount($conn, $user_id, 'customer');
+                    if ($uNotif > 0): 
+                ?>
+                <span style="background:#e53e3e; color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; font-weight:700;"><?= $uNotif ?></span>
+                <?php endif; ?>
+            </a>
+            <a href="Service.php#catalog" class="submit-btn" style="text-decoration: none; padding: 8px 16px; font-size:13px;">Browse Vehicles</a>
+        </div>
     </div>
 
     <?php if ($message): ?>

@@ -1,9 +1,12 @@
 <?php
 require_once 'config.php';
-if (!isset($_SESSION['user_id']) || !$_SESSION['is_admin']) {
-    header("Location: login.php");
-    exit();
-}
+require_once 'rental_service.php';
+
+RentalService::requirePermission($conn, 'manage_vehicles');
+
+$currentUserId = (int)$_SESSION['user_id'];
+$currentUserRole = $_SESSION['role'] ?? RentalService::getUserRole($conn, $currentUserId);
+$unread_sidebar_count = RentalService::getUnreadNotificationCount($conn, $currentUserId, $currentUserRole);
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $is_edit = $id > 0;
@@ -114,6 +117,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
 
         if ($stmt->execute()) {
+            $vId = $is_edit ? $id : (int)$conn->insert_id;
+            RentalService::logSystemAudit($conn, $currentUserId, $currentUserRole, 'operational', $is_edit ? 'VEHICLE_UPDATED' : 'VEHICLE_CREATED', $vId, 'vehicle', ($is_edit ? "Updated" : "Created") . " vehicle $name (Reg: $reg_number, Rate: $$price/day)");
             header("Location: Product.php");
             exit();
         } else {
@@ -142,24 +147,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <a href="Product.php"><span class="dot"></span>Products</a>
             <a class="active" href="product_edit.php"><span class="dot"></span>Product Management</a>
-            <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
-            <a href="categories.php"><span class="dot"></span>Categories</a>
-            <a href="orders.php"><span class="dot"></span>Orders</a>
-            <a href="finance.php"><span class="dot"></span>Finance</a>
-            <a href="users.php"><span class="dot"></span>Users</a>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_maintenance')): ?>
+                <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_categories')): ?>
+                <a href="categories.php"><span class="dot"></span>Categories</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_bookings')): ?>
+                <a href="orders.php"><span class="dot"></span>Orders</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'view_finance_reports')): ?>
+                <a href="finance.php"><span class="dot"></span>Finance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_customers') || RentalService::checkPermission($conn, $currentUserId, 'manage_staff_roles')): ?>
+                <a href="users.php"><span class="dot"></span>Users</a>
+            <?php endif; ?>
+            <a href="notifications.php">
+                <span class="dot"></span>Notifications
+                <?php if ($unread_sidebar_count > 0): ?>
+                    <span style="background:#e53e3e; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 6px; margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                <?php endif; ?>
+            </a>
         </nav> 
         <div class="sidebar-footer">
             <div class="profile-avatar"><?= strtoupper(substr($_SESSION['username'],0,2)) ?></div>
             <div>
                 <p class="name"><?= htmlspecialchars($_SESSION['username']) ?></p>
-                <p class="role"><a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
+                <p class="role"><span style="text-transform: capitalize; font-size:11px; color:#64748b;"><?= htmlspecialchars($currentUserRole) ?></span> | <a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
             </div>
         </div>
     </aside>
     <div class="app-main">
         <header class="app-topbar">
-            <a href="product_edit.php" class="logo"><h1>Vehicle Inventory Management</h1></a>
-            <p class="subtitle"><?= date('l, F j, Y') ?></p>
+            <div>
+                <a href="product_edit.php" class="logo"><h1>Vehicle Inventory Management</h1></a>
+                <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
+            </div>
+            <div class="topbar-actions">
+                <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
+                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span style="background:#e53e3e; color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; font-weight:700;"><?= $unread_sidebar_count ?></span><?php endif; ?>
+                </a>
+            </div>
         </header>
         <header class="app-topbar"><h2><?= $is_edit ? 'Edit' : 'Add New' ?> Vehicle</h2></header>
         <main class="dashboard-body">

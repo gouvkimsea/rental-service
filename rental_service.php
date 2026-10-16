@@ -4,6 +4,90 @@
 require_once __DIR__ . '/config.php';
 
 class RentalService {
+    public const ROLE_ADMIN = 'admin';
+    public const ROLE_RENTAL_MANAGER = 'rental_manager';
+    public const ROLE_FINANCE_STAFF = 'finance_staff';
+    public const ROLE_CUSTOMER = 'customer';
+
+    public const PERMISSIONS = [
+        'manage_vehicles' => ['admin', 'rental_manager'],
+        'manage_maintenance' => ['admin', 'rental_manager'],
+        'manage_categories' => ['admin', 'rental_manager'],
+        'manage_bookings' => ['admin', 'rental_manager'],
+        'manage_handover_return' => ['admin', 'rental_manager'],
+        'manage_payments' => ['admin', 'finance_staff'],
+        'manage_refunds' => ['admin', 'finance_staff'],
+        'manage_refunds_deposits' => ['admin', 'finance_staff'],
+        'view_finance_reports' => ['admin', 'finance_staff'],
+        'manage_customers' => ['admin', 'rental_manager'],
+        'manage_staff_roles' => ['admin'],
+        'system_settings' => ['admin'],
+        'view_dashboard' => ['admin', 'rental_manager', 'finance_staff'],
+        'create_booking' => ['admin', 'rental_manager', 'finance_staff', 'customer'],
+        'view_own_orders' => ['admin', 'rental_manager', 'finance_staff', 'customer'],
+    ];
+
+    /**
+     * Get user role from DB or session fallback.
+     */
+    public static function getUserRole(mysqli $conn, int $userId): string {
+        $stmt = $conn->prepare("SELECT role, is_admin FROM users WHERE id = ?");
+        $stmt->bind_param("i", $userId);
+        $stmt->execute();
+        if ($row = $stmt->get_result()->fetch_assoc()) {
+            if (!empty($row['role'])) {
+                return $row['role'];
+            }
+            return $row['is_admin'] ? self::ROLE_ADMIN : self::ROLE_CUSTOMER;
+        }
+        return self::ROLE_CUSTOMER;
+    }
+
+    /**
+     * Check if a specific role has a given permission.
+     */
+    public static function hasPermission(string $permission, string $role): bool {
+        if ($role === self::ROLE_ADMIN) {
+            return true;
+        }
+        $allowed = self::PERMISSIONS[$permission] ?? [];
+        return in_array($role, $allowed, true);
+    }
+
+    /**
+     * Check if user ID has permission, caching in session where available.
+     */
+    public static function checkPermission(mysqli $conn, int $userId, string $permission): bool {
+        $role = $_SESSION['role'] ?? null;
+        if (!$role || !isset($_SESSION['user_id']) || (int)$_SESSION['user_id'] !== $userId) {
+            $role = self::getUserRole($conn, $userId);
+            $_SESSION['role'] = $role;
+        }
+        return self::hasPermission($permission, $role);
+    }
+
+    /**
+     * Enforce permission server-side, logging unauthorized attempts and halting execution.
+     */
+    public static function requirePermission(mysqli $conn, string $permission, ?string $redirectUrl = null): void {
+        if (!isset($_SESSION['user_id'])) {
+            header("Location: login.php");
+            exit();
+        }
+        $userId = (int)$_SESSION['user_id'];
+        if (!self::checkPermission($conn, $userId, $permission)) {
+            $role = $_SESSION['role'] ?? 'unknown';
+            self::logSystemAudit($conn, $userId, $role, 'auth_permission', 'PERMISSION_DENIED', null, null, "User attempted unauthorized operation: $permission");
+            if ($redirectUrl) {
+                $_SESSION['error'] = "Access denied: your role ($role) lacks permission '$permission'.";
+                header("Location: $redirectUrl");
+                exit();
+            }
+            http_response_code(403);
+            die("<!DOCTYPE html><html><head><title>403 Forbidden</title><link rel='stylesheet' href='style.css'></head><body style='padding:50px; text-align:center;'><h2>403 Forbidden</h2><p>Access denied: your account role ('$role') does not have permission to '$permission'.</p><p><a href='dashboard.php' class='primary-link'>Back to Dashboard</a> | <a href='Service.php' class='primary-link'>Back to Storefront</a></p></body></html>");
+        }
+    }
+
     /**
      * Get system setting value by key with optional fallback.
      */
@@ -418,6 +502,31 @@ class RentalService {
             }
 
             $conn->commit();
+
+            // Dispatch notification to rental managers
+            self::createNotification($conn, [
+                'target_role' => self::ROLE_RENTAL_MANAGER,
+                'type' => 'new_booking',
+                'title' => "New Booking #$bookingRef Placed",
+                'message' => "Customer placed booking #$bookingRef ($startDate to $endDate). Total: \${$pricing['total_amount']}.",
+                'reference_id' => $orderId,
+                'reference_type' => 'order',
+                'idempotency_key' => "new_booking_staff_{$orderId}"
+            ]);
+
+            // Dispatch notification to customer
+            self::createNotification($conn, [
+                'user_id' => $userId,
+                'target_role' => self::ROLE_CUSTOMER,
+                'type' => 'new_booking',
+                'title' => "Booking Placed: $bookingRef",
+                'message' => "Your booking #$bookingRef has been received. Our team is reviewing vehicle availability.",
+                'reference_id' => $orderId,
+                'reference_type' => 'order',
+                'idempotency_key' => "new_booking_cust_{$orderId}"
+            ]);
+
+            self::logSystemAudit($conn, $userId, 'customer', 'booking', 'BOOKING_CREATED', $orderId, 'order', "New booking #$bookingRef created. Amount: \${$pricing['total_amount']}");
 
             return [
                 'success' => true,
@@ -1128,11 +1237,48 @@ class RentalService {
             return ['success' => false, 'message' => 'Invalid status.'];
         }
 
+        $oStmt = $conn->prepare("SELECT user_id, booking_ref, status FROM orders WHERE id = ?");
+        $oStmt->bind_param("i", $orderId);
+        $oStmt->execute();
+        $order = $oStmt->get_result()->fetch_assoc();
+
         $stmt = $conn->prepare("UPDATE orders SET status = ? WHERE id = ?");
         $stmt->bind_param("si", $newStatus, $orderId);
         if ($stmt->execute()) {
             self::recalculateOrderFinancials($conn, $orderId, $staffId);
             self::logFinancialAudit($conn, $orderId, $staffId, 'STATUS_TRANSITION', 0.00, "Booking status updated to $newStatus.");
+
+            $actorRole = $_SESSION['role'] ?? self::ROLE_ADMIN;
+            self::logSystemAudit($conn, $staffId, $actorRole, 'booking', 'STATUS_TRANSITION', $orderId, 'order', "Booking status changed from {$order['status']} to $newStatus");
+
+            // Dispatch customer notifications on confirmation or rejection
+            if ($order) {
+                $ref = $order['booking_ref'] ?: "#$orderId";
+                if ($newStatus === 'Approved') {
+                    self::createNotification($conn, [
+                        'user_id' => (int)$order['user_id'],
+                        'target_role' => self::ROLE_CUSTOMER,
+                        'type' => 'booking_confirmed',
+                        'title' => "Booking Confirmed: $ref",
+                        'message' => "Your booking $ref has been reviewed and approved! Please verify documents and complete deposit before pickup.",
+                        'reference_id' => $orderId,
+                        'reference_type' => 'order',
+                        'idempotency_key' => "status_approved_{$orderId}"
+                    ]);
+                } elseif ($newStatus === 'Declined') {
+                    self::createNotification($conn, [
+                        'user_id' => (int)$order['user_id'],
+                        'target_role' => self::ROLE_CUSTOMER,
+                        'type' => 'booking_rejected',
+                        'title' => "Booking Declined: $ref",
+                        'message' => "Unfortunately, your booking $ref could not be accommodated at this time.",
+                        'reference_id' => $orderId,
+                        'reference_type' => 'order',
+                        'idempotency_key' => "status_declined_{$orderId}"
+                    ]);
+                }
+            }
+
             return ['success' => true, 'message' => "Booking status updated to $newStatus."];
         }
         return ['success' => false, 'message' => 'Failed to update status.'];
@@ -1430,5 +1576,581 @@ class RentalService {
             'payment_methods' => $methodBreakdown
         ];
     }
+
+    /**
+     * Detect conflicting reservations for a vehicle during scheduled maintenance window.
+     */
+    public static function detectMaintenanceConflicts(mysqli $conn, int $productId, string $startDate, ?string $endDate = null): array {
+        $endDate = $endDate ?: $startDate;
+        $stmt = $conn->prepare("
+            SELECT o.id, o.booking_ref, o.status, o.start_date, o.start_time, o.end_date, o.end_time,
+                   u.name as customer_name, u.phone as customer_phone
+            FROM orders o
+            JOIN order_items oi ON o.id = oi.order_id
+            JOIN users u ON o.user_id = u.id
+            WHERE oi.product_id = ?
+              AND o.status IN ('Pending', 'Approved', 'Active')
+              AND NOT (o.end_date < ? OR o.start_date > ?)
+            ORDER BY o.start_date ASC
+        ");
+        $stmt->bind_param("iss", $productId, $startDate, $endDate);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $conflicts = [];
+        while ($row = $res->fetch_assoc()) {
+            $conflicts[] = $row;
+        }
+        return [
+            'has_conflict' => !empty($conflicts),
+            'conflicts' => $conflicts,
+            'conflicting_bookings' => $conflicts,
+            'count' => count($conflicts)
+        ];
+    }
+
+    /**
+     * Schedule vehicle maintenance, detecting conflicts without silently canceling customer reservations.
+     * Supports either positional arguments or an options array for $productId.
+     */
+    public static function scheduleMaintenance(
+        mysqli $conn, 
+        $productId, 
+        $type = 'inspection', 
+        $description = '', 
+        $cost = 0.0, 
+        $startDate = null, 
+        $endDate = null, 
+        $status = 'scheduled', 
+        $staffId = 0, 
+        $serviceCenter = '', 
+        $odometer = null, 
+        $allowConflicts = false
+    ): array {
+        if (is_array($productId)) {
+            $params = $productId;
+            $productId = (int)($params['product_id'] ?? 0);
+            $type = $params['maintenance_type'] ?? 'inspection';
+            $description = $params['description'] ?? '';
+            $cost = (float)($params['cost'] ?? 0);
+            $startDate = $params['start_date'] ?? date('Y-m-d');
+            $endDate = $params['end_date'] ?? null;
+            $status = $params['status'] ?? 'scheduled';
+            $staffId = (int)($params['staff_id'] ?? 0);
+            $serviceCenter = $params['service_center'] ?? '';
+            $odometer = isset($params['odometer_at_service']) ? (int)$params['odometer_at_service'] : (isset($params['odometer']) ? (int)$params['odometer'] : null);
+            $allowConflicts = !empty($params['allow_conflicts']);
+        }
+
+        $conflicts = self::detectMaintenanceConflicts($conn, (int)$productId, (string)$startDate, $endDate);
+
+        if ($conflicts['has_conflict'] && !$allowConflicts) {
+            return [
+                'success' => false,
+                'has_conflict' => true,
+                'conflict_detected' => true,
+                'conflicts' => $conflicts['conflicts'],
+                'conflicting_bookings' => $conflicts['conflicts'],
+                'message' => "Cannot schedule maintenance: vehicle has {$conflicts['count']} confirmed or active reservation(s) during this period. Resolve conflicts or confirm staff override."
+            ];
+        }
+
+        $hasConflict = $conflicts['has_conflict'] ? 1 : 0;
+        $conflictJson = $hasConflict ? json_encode($conflicts['conflicts']) : null;
+
+        $stmt = $conn->prepare("
+            INSERT INTO vehicle_maintenance 
+            (product_id, maintenance_type, description, service_center, odometer_at_service, cost, start_date, end_date, status, inspection_result, conflict_detected, conflict_details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        ");
+        $stmt->bind_param("isssidsssis", $productId, $type, $description, $serviceCenter, $odometer, $cost, $startDate, $endDate, $status, $hasConflict, $conflictJson);
+
+        if ($stmt->execute()) {
+            $maintId = $conn->insert_id;
+
+            // If in_progress or scheduled starting today, mark vehicle maintenance
+            if ($status === 'in_progress' || ($status === 'scheduled' && $startDate <= date('Y-m-d'))) {
+                $conn->query("UPDATE products SET status = 'maintenance' WHERE id = $productId");
+            }
+
+            // Flag affected orders and dispatch alert if conflicts exist
+            if ($hasConflict) {
+                $orderIds = array_column($conflicts['conflicts'], 'id');
+                if (!empty($orderIds)) {
+                    $inList = implode(',', array_map('intval', $orderIds));
+                    $conn->query("UPDATE orders SET maintenance_conflict = 1 WHERE id IN ($inList)");
+                }
+                self::createNotification($conn, [
+                    'target_role' => self::ROLE_RENTAL_MANAGER,
+                    'type' => 'maintenance_conflict',
+                    'title' => "Maintenance Conflict Detected (Vehicle #$productId)",
+                    'message' => "Maintenance for '$type' scheduled during active/confirmed bookings. Staff attention required to reassign vehicles.",
+                    'reference_id' => $maintId,
+                    'reference_type' => 'maintenance',
+                    'idempotency_key' => "maint_conflict_{$maintId}_" . date('Ymd')
+                ]);
+            }
+
+            $actorRole = $_SESSION['role'] ?? self::ROLE_ADMIN;
+            self::logSystemAudit($conn, (int)$staffId, $actorRole, 'maintenance', 'MAINTENANCE_SCHEDULED', $maintId, 'maintenance', "Scheduled $type for vehicle ID #$productId ($startDate to $endDate). Conflicts: $hasConflict");
+
+            return [
+                'success' => true,
+                'maintenance_id' => $maintId,
+                'has_conflict' => (bool)$hasConflict,
+                'conflict_detected' => (bool)$hasConflict,
+                'message' => 'Maintenance record created successfully.' . ($hasConflict ? ' Conflicting reservations flagged for staff attention.' : '')
+            ];
+        }
+
+        return ['success' => false, 'message' => 'Failed to schedule maintenance: ' . $stmt->error];
+    }
+
+    /**
+     * Complete maintenance and return vehicle to active service only after required inspection.
+     * Supports either positional arguments or an options array for $staffId.
+     */
+    public static function completeMaintenanceInspection(
+        mysqli $conn, 
+        int $maintenanceId, 
+        $staffId, 
+        $inspectionResult = null, 
+        $notes = '', 
+        $conditionStatus = 'good', 
+        $returnOdometer = null
+    ): array {
+        if (is_array($staffId)) {
+            $params = $staffId;
+            $staffId = (int)($params['staff_id'] ?? 0);
+            $inspectionResult = $params['inspection_result'] ?? 'passed';
+            $notes = $params['notes'] ?? ($params['inspection_notes'] ?? '');
+            $conditionStatus = $params['condition_status'] ?? 'good';
+            $returnOdometer = isset($params['odometer']) ? (int)$params['odometer'] : (isset($params['return_odometer']) ? (int)$params['return_odometer'] : null);
+        }
+
+        $validResults = ['passed', 'passed_with_notes', 'failed'];
+        if (!in_array($inspectionResult, $validResults, true)) {
+            return ['success' => false, 'message' => 'Invalid inspection result. Must be passed, passed_with_notes, or failed.'];
+        }
+
+        $stmt = $conn->prepare("SELECT * FROM vehicle_maintenance WHERE id = ?");
+        $stmt->bind_param("i", $maintenanceId);
+        $stmt->execute();
+        $maint = $stmt->get_result()->fetch_assoc();
+        if (!$maint) {
+            return ['success' => false, 'message' => 'Maintenance record not found.'];
+        }
+
+        $pId = (int)$maint['product_id'];
+        $now = date('Y-m-d H:i:s');
+        $today = date('Y-m-d');
+
+        $upd = $conn->prepare("
+            UPDATE vehicle_maintenance 
+            SET status = 'completed', end_date = COALESCE(end_date, ?), 
+                inspection_result = ?, inspection_notes = ?, inspected_by = ?, inspected_at = ? 
+            WHERE id = ?
+        ");
+        $upd->bind_param("sssisi", $today, $inspectionResult, $notes, $staffId, $now, $maintenanceId);
+
+        if ($upd->execute()) {
+            $actorRole = $_SESSION['role'] ?? self::ROLE_ADMIN;
+
+            if ($inspectionResult === 'failed') {
+                // Vehicle must remain in maintenance and cannot be returned to service!
+                $conn->query("UPDATE products SET status = 'maintenance', condition_status = 'needs_service' WHERE id = $pId");
+                self::logSystemAudit($conn, (int)$staffId, $actorRole, 'maintenance', 'INSPECTION_FAILED', $maintenanceId, 'maintenance', "Inspection failed for vehicle ID #$pId: $notes. Vehicle kept in maintenance.");
+                return [
+                    'success' => true,
+                    'returned_to_service' => false,
+                    'message' => 'Inspection logged as FAILED. Vehicle remains locked in maintenance and cannot be rented.'
+                ];
+            }
+
+            // Inspection passed / passed_with_notes: return vehicle to active service
+            $validConds = ['excellent', 'good', 'fair'];
+            $finalCond = in_array($conditionStatus, $validConds, true) ? $conditionStatus : 'good';
+
+            if ($returnOdometer !== null && $returnOdometer > 0) {
+                $pUpd = $conn->prepare("UPDATE products SET status = 'available', condition_status = ?, mileage = ? WHERE id = ?");
+                $pUpd->bind_param("sii", $finalCond, $returnOdometer, $pId);
+            } else {
+                $pUpd = $conn->prepare("UPDATE products SET status = 'available', condition_status = ? WHERE id = ?");
+                $pUpd->bind_param("si", $finalCond, $pId);
+            }
+            $pUpd->execute();
+
+            // Clear conflict flags on orders associated with this vehicle if any
+            $conn->query("
+                UPDATE orders o 
+                JOIN order_items oi ON o.id = oi.order_id 
+                SET o.maintenance_conflict = 0 
+                WHERE oi.product_id = $pId AND o.maintenance_conflict = 1
+            ");
+
+            self::logSystemAudit($conn, $staffId, $actorRole, 'maintenance', 'INSPECTION_PASSED', $maintenanceId, 'maintenance', "Inspection passed ($inspectionResult) for vehicle ID #$pId. Vehicle returned to available service ($finalCond).");
+
+            return [
+                'success' => true,
+                'returned_to_service' => true,
+                'message' => "Inspection passed ($inspectionResult). Vehicle has been authorized and returned to active service ($finalCond)."
+            ];
+        }
+
+        return ['success' => false, 'message' => 'Failed to record inspection: ' . $upd->error];
+    }
+
+    /**
+     * Create notification with idempotency check to prevent duplicate dispatches.
+     */
+    public static function createNotification(mysqli $conn, array $params): array {
+        $userId = !empty($params['user_id']) ? (int)$params['user_id'] : null;
+        $targetRole = $params['target_role'] ?? 'all';
+        $type = $params['type'] ?? 'general';
+        $title = $params['title'] ?? 'Notification';
+        $message = $params['message'] ?? '';
+        $refId = !empty($params['reference_id']) ? (int)$params['reference_id'] : null;
+        $refType = $params['reference_type'] ?? null;
+        $idempotencyKey = $params['idempotency_key'] ?? null;
+        $channel = $params['channel'] ?? 'internal';
+
+        // Check idempotency key to prevent duplicate notifications
+        if ($idempotencyKey) {
+            $chk = $conn->prepare("SELECT id FROM notifications WHERE idempotency_key = ?");
+            $chk->bind_param("s", $idempotencyKey);
+            $chk->execute();
+            if ($row = $chk->get_result()->fetch_assoc()) {
+                return ['success' => true, 'duplicate' => true, 'id' => (int)$row['id']];
+            }
+        }
+
+        $stmt = $conn->prepare("
+            INSERT INTO notifications 
+            (user_id, target_role, notification_type, title, message, reference_id, reference_type, idempotency_key, channel, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unread', NOW())
+        ");
+        $stmt->bind_param("issssisss", $userId, $targetRole, $type, $title, $message, $refId, $refType, $idempotencyKey, $channel);
+        
+        if ($stmt->execute()) {
+            return ['success' => true, 'id' => $conn->insert_id, 'duplicate' => false];
+        }
+        return ['success' => false, 'message' => 'Failed to create notification: ' . $stmt->error];
+    }
+
+    /**
+     * Get unread notification count for user or staff role.
+     */
+    public static function getUnreadNotificationCount(mysqli $conn, int $userId, string $role): int {
+        $stmt = $conn->prepare("
+            SELECT COUNT(*) as cnt 
+            FROM notifications 
+            WHERE status = 'unread' 
+              AND (user_id = ? OR (user_id IS NULL AND (target_role = 'all' OR target_role = ? OR target_role = 'all_staff')))
+        ");
+        $stmt->bind_param("is", $userId, $role);
+        $stmt->execute();
+        return (int)$stmt->get_result()->fetch_assoc()['cnt'];
+    }
+
+    /**
+     * Fetch notifications for user or staff role.
+     */
+    public static function getNotifications(mysqli $conn, int $userId, string $role, int $limit = 40): array {
+        $stmt = $conn->prepare("
+            SELECT * 
+            FROM notifications 
+            WHERE (user_id = ? OR (user_id IS NULL AND (target_role = 'all' OR target_role = ? OR target_role = 'all_staff')))
+            ORDER BY created_at DESC 
+            LIMIT ?
+        ");
+        $stmt->bind_param("isi", $userId, $role, $limit);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $list = [];
+        while ($r = $res->fetch_assoc()) {
+            $list[] = $r;
+        }
+        return $list;
+    }
+
+    /**
+     * Mark single notification as read.
+     */
+    public static function markNotificationRead(mysqli $conn, int $notificationId, int $userId): bool {
+        $stmt = $conn->prepare("UPDATE notifications SET status = 'read', read_at = NOW() WHERE id = ?");
+        $stmt->bind_param("i", $notificationId);
+        return $stmt->execute();
+    }
+
+    /**
+     * Mark all notifications as read for user or role.
+     */
+    public static function markAllNotificationsRead(mysqli $conn, int $userId, string $role): bool {
+        $stmt = $conn->prepare("
+            UPDATE notifications 
+            SET status = 'read', read_at = NOW() 
+            WHERE status = 'unread' 
+              AND (user_id = ? OR (user_id IS NULL AND (target_role = 'all' OR target_role = ?)))
+        ");
+        $stmt->bind_param("is", $userId, $role);
+        return $stmt->execute();
+    }
+
+    /**
+     * Automated reminder triggers for upcoming pickups, returns, and overdue rentals.
+     */
+    public static function triggerAutomatedReminders(mysqli $conn): array {
+        $today = date('Y-m-d');
+        $pickupCount = 0;
+        $returnCount = 0;
+        $overdueCount = 0;
+
+        // 1. Upcoming Pickups (Approved bookings starting today)
+        $pickStmt = $conn->query("
+            SELECT o.id, o.booking_ref, o.user_id, o.start_date, o.start_time, u.name as customer_name
+            FROM orders o
+            JOIN users u ON o.user_id = u.id
+            WHERE o.status = 'Approved' AND o.start_date = CURDATE()
+        ");
+        while ($p = $pickStmt->fetch_assoc()) {
+            $oid = (int)$p['id'];
+            $uid = (int)$p['user_id'];
+            $ref = $p['booking_ref'];
+            self::createNotification($conn, [
+                'user_id' => $uid,
+                'target_role' => self::ROLE_CUSTOMER,
+                'type' => 'upcoming_pickup',
+                'title' => "Upcoming Vehicle Pickup: $ref",
+                'message' => "Your rental is scheduled for pickup today at {$p['start_time']}. Please bring your driver license and ID.",
+                'reference_id' => $oid,
+                'reference_type' => 'order',
+                'idempotency_key' => "pickup_cust_{$oid}_{$today}"
+            ]);
+            self::createNotification($conn, [
+                'target_role' => self::ROLE_RENTAL_MANAGER,
+                'type' => 'upcoming_pickup',
+                'title' => "Scheduled Pickup Today: $ref",
+                'message' => "Customer {$p['customer_name']} is scheduled to pick up booking $ref today at {$p['start_time']}.",
+                'reference_id' => $oid,
+                'reference_type' => 'order',
+                'idempotency_key' => "pickup_staff_{$oid}_{$today}"
+            ]);
+            $pickupCount++;
+        }
+
+        // 2. Upcoming Returns (Active bookings ending today)
+        $retStmt = $conn->query("
+            SELECT o.id, o.booking_ref, o.user_id, o.end_date, o.end_time, u.name as customer_name
+            FROM orders o
+            JOIN users u ON o.user_id = u.id
+            WHERE o.status = 'Active' AND o.end_date = CURDATE()
+        ");
+        while ($r = $retStmt->fetch_assoc()) {
+            $oid = (int)$r['id'];
+            $uid = (int)$r['user_id'];
+            $ref = $r['booking_ref'];
+            self::createNotification($conn, [
+                'user_id' => $uid,
+                'target_role' => self::ROLE_CUSTOMER,
+                'type' => 'upcoming_return',
+                'title' => "Rental Return Due Today: $ref",
+                'message' => "Your vehicle return is scheduled today by {$r['end_time']}. Avoid late return fees by returning on time.",
+                'reference_id' => $oid,
+                'reference_type' => 'order',
+                'idempotency_key' => "return_cust_{$oid}_{$today}"
+            ]);
+            $returnCount++;
+        }
+
+        // 3. Overdue Rentals (Active bookings past scheduled return time)
+        $overStmt = $conn->query("
+            SELECT o.id, o.booking_ref, o.user_id, o.end_date, o.end_time, u.name as customer_name, u.phone as customer_phone
+            FROM orders o
+            JOIN users u ON o.user_id = u.id
+            WHERE o.status = 'Active' 
+              AND (o.end_date < CURDATE() OR (o.end_date = CURDATE() AND o.end_time < CURTIME()))
+        ");
+        while ($ov = $overStmt->fetch_assoc()) {
+            $oid = (int)$ov['id'];
+            $uid = (int)$ov['user_id'];
+            $ref = $ov['booking_ref'];
+            self::createNotification($conn, [
+                'target_role' => self::ROLE_RENTAL_MANAGER,
+                'type' => 'overdue_rental',
+                'title' => "OVERDUE RENTAL: $ref",
+                'message' => "Booking $ref ({$ov['customer_name']}, Tel: {$ov['customer_phone']}) is past scheduled return ({$ov['end_date']} {$ov['end_time']}). Late fees are accumulating.",
+                'reference_id' => $oid,
+                'reference_type' => 'order',
+                'idempotency_key' => "overdue_staff_{$oid}_{$today}"
+            ]);
+            $overdueCount++;
+        }
+
+        return [
+            'pickups' => $pickupCount,
+            'returns' => $returnCount,
+            'overdue' => $overdueCount
+        ];
+    }
+
+    /**
+     * Derive vehicle real-time operational status (maintenance, on-road, upcoming reservation, buffer, available).
+     */
+    public static function getVehicleOperationalStatus(mysqli $conn, int $productId): array {
+        $pStmt = $conn->prepare("SELECT id, name, reg_number, status, condition_status, is_archived, buffer_hours FROM products WHERE id = ?");
+        $pStmt->bind_param("i", $productId);
+        $pStmt->execute();
+        $p = $pStmt->get_result()->fetch_assoc();
+        if (!$p) {
+            return ['state' => 'not_found', 'label' => 'Not Found', 'badge' => 'badge-disabled'];
+        }
+
+        if ($p['is_archived'] || $p['status'] === 'inactive') {
+            return ['state' => 'inactive', 'label' => 'Inactive / Archived', 'badge' => 'badge-disabled'];
+        }
+
+        // 1. Is it currently in active maintenance?
+        $mStmt = $conn->prepare("
+            SELECT id, maintenance_type, service_center, end_date 
+            FROM vehicle_maintenance 
+            WHERE product_id = ? AND status IN ('scheduled', 'in_progress')
+              AND start_date <= CURDATE() AND (end_date >= CURDATE() OR end_date IS NULL)
+            ORDER BY id DESC LIMIT 1
+        ");
+        $mStmt->bind_param("i", $productId);
+        $mStmt->execute();
+        if ($m = $mStmt->get_result()->fetch_assoc()) {
+            return [
+                'state' => 'maintenance',
+                'label' => "Maintenance ({$m['maintenance_type']})",
+                'badge' => 'badge-forfeited',
+                'details' => $m
+            ];
+        }
+
+        // 2. Is it currently rented out on the road?
+        $rStmt = $conn->prepare("
+            SELECT o.id, o.booking_ref, o.end_date, o.end_time, u.name as customer_name
+            FROM orders o
+            JOIN order_items oi ON o.id = oi.order_id
+            JOIN users u ON o.user_id = u.id
+            WHERE oi.product_id = ? AND o.status = 'Active'
+            LIMIT 1
+        ");
+        $rStmt->bind_param("i", $productId);
+        $rStmt->execute();
+        if ($r = $rStmt->get_result()->fetch_assoc()) {
+            $isOverdue = (strtotime("{$r['end_date']} {$r['end_time']}") < time());
+            return [
+                'state' => 'rented',
+                'label' => $isOverdue ? "OVERDUE (Return: {$r['end_date']} {$r['end_time']})" : "Rented to {$r['customer_name']}",
+                'badge' => $isOverdue ? 'badge-forfeited' : 'badge-held',
+                'is_overdue' => $isOverdue,
+                'order_ref' => $r['booking_ref'],
+                'order_id' => $r['id']
+            ];
+        }
+
+        // 3. Upcoming reservation starting today?
+        $resStmt = $conn->prepare("
+            SELECT o.id, o.booking_ref, o.start_date, o.start_time, u.name as customer_name
+            FROM orders o
+            JOIN order_items oi ON o.id = oi.order_id
+            JOIN users u ON o.user_id = u.id
+            WHERE oi.product_id = ? AND o.status = 'Approved'
+              AND o.start_date = CURDATE()
+            LIMIT 1
+        ");
+        $resStmt->bind_param("i", $productId);
+        $resStmt->execute();
+        if ($resRow = $resStmt->get_result()->fetch_assoc()) {
+            return [
+                'state' => 'reserved_today',
+                'label' => "Reserved Today ({$resRow['start_time']})",
+                'badge' => 'badge-pending',
+                'order_ref' => $resRow['booking_ref'],
+                'order_id' => $resRow['id']
+            ];
+        }
+
+        return [
+            'state' => 'available',
+            'label' => 'Available for Booking',
+            'badge' => 'badge-verified'
+        ];
+    }
+
+    /**
+     * Fetch key operational dashboard metrics for dispatch operations.
+     */
+    public static function getOperationalDashboardMetrics(mysqli $conn): array {
+        self::triggerAutomatedReminders($conn);
+
+        $upcomingPickups = (int)$conn->query("
+            SELECT COUNT(*) as cnt 
+            FROM orders 
+            WHERE status = 'Approved' AND start_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+        ")->fetch_assoc()['cnt'];
+
+        $activeRentals = (int)$conn->query("
+            SELECT COUNT(*) as cnt 
+            FROM orders 
+            WHERE status = 'Active'
+        ")->fetch_assoc()['cnt'];
+
+        $overdueReturns = (int)$conn->query("
+            SELECT COUNT(*) as cnt 
+            FROM orders 
+            WHERE status = 'Active' 
+              AND (end_date < CURDATE() OR (end_date = CURDATE() AND end_time < CURTIME()))
+        ")->fetch_assoc()['cnt'];
+
+        $maintConflicts = (int)$conn->query("
+            SELECT COUNT(*) as cnt 
+            FROM orders 
+            WHERE maintenance_conflict = 1 AND status IN ('Pending', 'Approved', 'Active')
+        ")->fetch_assoc()['cnt'];
+
+        $vehiclesUnderMaint = (int)$conn->query("
+            SELECT COUNT(DISTINCT product_id) as cnt 
+            FROM vehicle_maintenance 
+            WHERE status IN ('scheduled', 'in_progress')
+        ")->fetch_assoc()['cnt'];
+
+        return [
+            'upcoming_pickups' => $upcomingPickups,
+            'active_rentals' => $activeRentals,
+            'overdue_returns' => $overdueReturns,
+            'maintenance_conflicts' => $maintConflicts,
+            'vehicles_under_maintenance' => $vehiclesUnderMaint
+        ];
+    }
+
+    /**
+     * Unified system and security audit log recording actor, timestamp, action, and reference.
+     * Sanitizes credentials and sensitive data.
+     */
+    public static function logSystemAudit(
+        mysqli $conn, 
+        ?int $actorId, 
+        string $actorRole, 
+        string $category, 
+        string $actionType, 
+        ?int $refId, 
+        ?string $refType, 
+        string $details
+    ): void {
+        // Mask any sensitive patterns (e.g. passwords, bearer tokens, cvv)
+        $sanitized = preg_replace('/(password|token|secret|cvv)\s*=\s*[^\s,]+/i', '$1=***', $details);
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+        $stmt = $conn->prepare("
+            INSERT INTO system_audit_logs 
+            (actor_id, actor_role, action_category, action_type, reference_id, reference_type, details, ip_address, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        $stmt->bind_param("isssisss", $actorId, $actorRole, $category, $actionType, $refId, $refType, $sanitized, $ip);
+        $stmt->execute();
+    }
 }
+
 

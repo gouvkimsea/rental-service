@@ -3,19 +3,24 @@
 require_once 'config.php';
 require_once 'rental_service.php';
 
-if (!isset($_SESSION['user_id']) || empty($_SESSION['is_admin'])) {
-    header("Location: login.php");
-    exit();
-}
+RentalService::requirePermission($conn, 'view_finance_reports');
 
 $adminId = (int)$_SESSION['user_id'];
+$currentUserRole = $_SESSION['role'] ?? RentalService::getUserRole($conn, $adminId);
+$unread_sidebar_count = RentalService::getUnreadNotificationCount($conn, $adminId, $currentUserRole);
+
 $message = $_SESSION['message'] ?? '';
 $error = $_SESSION['error'] ?? '';
 unset($_SESSION['message'], $_SESSION['error']);
 
 // Handle quick payment verification from ledger
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action'])) {
+    if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
+        http_response_code(403);
+        die('Invalid CSRF token.');
+    }
     if ($_POST['action'] === 'verify_payment') {
+        RentalService::requirePermission($conn, 'manage_payments');
         $payId = (int)($_POST['payment_id'] ?? 0);
         $res = RentalService::verifyPayment($conn, $payId, $adminId);
         if ($res['success']) {
@@ -319,25 +324,41 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
     </style>
 </head>
 <body>
-<div class="app-shell">
+<div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
     <!-- Sidebar -->
     <aside class="app-sidebar">
         <a class="logo" href="Service.php">Joul Rental</a>
         <nav class="side-nav">
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
-            <a href="Product.php"><span class="dot"></span>Products</a>
-            <a href="product_edit.php"><span class="dot"></span>Product Management</a>
-            <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
-            <a href="categories.php"><span class="dot"></span>Categories</a>
-            <a href="orders.php"><span class="dot"></span>Orders</a>
+            <?php if (RentalService::checkPermission($conn, $adminId, 'manage_vehicles')): ?>
+                <a href="Product.php"><span class="dot"></span>Products</a>
+                <a href="product_edit.php"><span class="dot"></span>Product Management</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $adminId, 'manage_maintenance')): ?>
+                <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $adminId, 'manage_categories')): ?>
+                <a href="categories.php"><span class="dot"></span>Categories</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $adminId, 'manage_bookings')): ?>
+                <a href="orders.php"><span class="dot"></span>Orders</a>
+            <?php endif; ?>
             <a class="active" href="finance.php"><span class="dot"></span>Finance</a>
-            <a href="users.php"><span class="dot"></span>Users</a>
+            <?php if (RentalService::checkPermission($conn, $adminId, 'manage_customers') || RentalService::checkPermission($conn, $adminId, 'manage_staff_roles')): ?>
+                <a href="users.php"><span class="dot"></span>Users</a>
+            <?php endif; ?>
+            <a href="notifications.php">
+                <span class="dot"></span>Notifications
+                <?php if ($unread_sidebar_count > 0): ?>
+                    <span style="background:#e53e3e; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 6px; margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                <?php endif; ?>
+            </a>
         </nav>
         <div class="sidebar-footer">
             <div class="profile-avatar"><?= strtoupper(substr($_SESSION['username'],0,2)) ?></div>
             <div>
                 <p class="name"><?= htmlspecialchars($_SESSION['username']) ?></p>
-                <p class="role"><a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
+                <p class="role"><span style="text-transform: capitalize; font-size:11px; color:#64748b;"><?= htmlspecialchars($currentUserRole) ?></span> | <a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
             </div>
         </div>
     </aside>
@@ -346,9 +367,12 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
         <header class="app-topbar">
             <div>
                 <a href="finance.php" class="logo"><h1>Financial Operations & Ledger</h1></a>
-                <p class="subtitle">Reporting Period: <?= htmlspecialchars($period['start_date']) ?> to <?= htmlspecialchars($period['end_date']) ?></p>
+                <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
             </div>
             <div class="topbar-actions" style="display: flex; gap: 10px; align-items: center;">
+                <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
+                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span style="background:#e53e3e; color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; font-weight:700;"><?= $unread_sidebar_count ?></span><?php endif; ?>
+                </a>
                 <a href="finance.php?export=csv&preset=<?= urlencode($preset) ?>&start_date=<?= urlencode($startDate) ?>&end_date=<?= urlencode($endDate) ?>" class="primary-link" style="background: #234234; color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600;">
                     Export CSV Ledger
                 </a>

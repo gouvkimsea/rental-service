@@ -1,6 +1,8 @@
 <?php
 // order_detail.php - Full Rental Operations, Lifecycle, Financial Ledger & Audit Breakdown
 require_once 'config.php';
+require_once 'rental_service.php';
+
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
@@ -8,25 +10,58 @@ if (!isset($_SESSION['user_id'])) {
 
 $order_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $user_id = (int)$_SESSION['user_id'];
-$is_admin = !empty($_SESSION['is_admin']);
+$user_role = $_SESSION['role'] ?? RentalService::getUserRole($conn, $user_id);
+$is_staff = in_array($user_role, [RentalService::ROLE_ADMIN, RentalService::ROLE_RENTAL_MANAGER, RentalService::ROLE_FINANCE_STAFF], true);
+$is_admin = ($user_role === RentalService::ROLE_ADMIN);
+
+$can_manage_bookings = RentalService::checkPermission($conn, $user_id, 'manage_bookings');
+$can_manage_handover = RentalService::checkPermission($conn, $user_id, 'manage_handover_return');
+$can_manage_payments = RentalService::checkPermission($conn, $user_id, 'manage_payments');
+$can_manage_refunds = RentalService::checkPermission($conn, $user_id, 'manage_refunds');
 
 $msg = '';
 $error = '';
 
+// Pre-fetch basic order info for permission and notification reference
+$preStmt = $conn->prepare("SELECT id, user_id, booking_ref, status FROM orders WHERE id = ?");
+$preStmt->bind_param("i", $order_id);
+$preStmt->execute();
+$preOrder = $preStmt->get_result()->fetch_assoc();
+
+if (!$preOrder) {
+    die("Booking not found.");
+}
+
+// Customers can only view/cancel their own booking
+if (!$is_staff && (int)$preOrder['user_id'] !== $user_id) {
+    http_response_code(403);
+    die("Permission denied: You do not have access to view this booking.");
+}
+
+$custUserId = (int)$preOrder['user_id'];
+$bookingRef = $preOrder['booking_ref'];
+
 // Handle Admin & Staff Operations
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
+        http_response_code(403);
         die("Invalid CSRF token.");
     }
 
     $op = $_POST['operation'] ?? '';
 
-    if ($is_admin) {
-        if ($op === 'verify_documents') {
+    if ($op === 'verify_documents') {
+        if (!$can_manage_bookings) {
+            $error = "Permission denied: Your role ($user_role) cannot verify customer documents.";
+        } else {
             $notes = trim($_POST['doc_notes'] ?? '');
             $res = RentalService::verifyCustomerDocuments($conn, $order_id, $user_id, $notes);
             $res['success'] ? $msg = $res['message'] : $error = $res['message'];
-        } elseif ($op === 'record_payment') {
+        }
+    } elseif ($op === 'record_payment') {
+        if (!$can_manage_payments) {
+            $error = "Permission denied: Your role ($user_role) cannot record payments.";
+        } else {
             $amount = (float)($_POST['amount'] ?? 0);
             $pType = $_POST['payment_type'] ?? 'rental_payment';
             $pMethod = $_POST['payment_method'] ?? 'cash';
@@ -39,61 +74,212 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             }
 
             $res = RentalService::recordPayment($conn, $order_id, $amount, $pType, $pMethod, $pRef, $user_id, $notes, $autoVerify);
-            $res['success'] ? $msg = $res['message'] : $error = $res['message'];
-        } elseif ($op === 'verify_payment_item') {
+            if ($res['success']) {
+                $msg = $res['message'];
+                RentalService::createNotification($conn, [
+                    'user_id' => $custUserId,
+                    'target_role' => RentalService::ROLE_CUSTOMER,
+                    'type' => 'payment_verified',
+                    'title' => "Payment Recorded: $bookingRef",
+                    'message' => "A payment of $" . number_format($amount, 2) . " (" . ucwords(str_replace('_', ' ', $pType)) . " via $pMethod) has been recorded.",
+                    'reference_id' => $order_id,
+                    'reference_type' => 'order',
+                    'idempotency_key' => "pay_rec_{$order_id}_" . time() . "_" . mt_rand(100, 999)
+                ]);
+            } else {
+                $error = $res['message'];
+            }
+        }
+    } elseif ($op === 'verify_payment_item') {
+        if (!$can_manage_payments) {
+            $error = "Permission denied: Your role ($user_role) cannot verify payments.";
+        } else {
             $pId = (int)$_POST['payment_id'];
             $res = RentalService::verifyPayment($conn, $pId, $user_id);
-            $res['success'] ? $msg = $res['message'] : $error = $res['message'];
-        } elseif ($op === 'deduct_deposit') {
+            if ($res['success']) {
+                $msg = $res['message'];
+                RentalService::createNotification($conn, [
+                    'user_id' => $custUserId,
+                    'target_role' => RentalService::ROLE_CUSTOMER,
+                    'type' => 'payment_verified',
+                    'title' => "Payment Verified: $bookingRef",
+                    'message' => "Your payment for booking $bookingRef has been verified by finance staff.",
+                    'reference_id' => $order_id,
+                    'reference_type' => 'order',
+                    'idempotency_key' => "pay_ver_{$pId}_" . time()
+                ]);
+            } else {
+                $error = $res['message'];
+            }
+        }
+    } elseif ($op === 'deduct_deposit') {
+        if (!$can_manage_refunds) {
+            $error = "Permission denied: Your role ($user_role) cannot adjust security deposits.";
+        } else {
             $amount = (float)($_POST['deduct_amount'] ?? 0);
             $reason = trim($_POST['deduct_reason'] ?? 'Deposit deduction for damages/fees');
             $res = RentalService::deductDeposit($conn, $order_id, $amount, $reason, $user_id);
-            $res['success'] ? $msg = $res['message'] : $error = $res['message'];
-        } elseif ($op === 'refund_deposit') {
+            if ($res['success']) {
+                $msg = $res['message'];
+                RentalService::createNotification($conn, [
+                    'user_id' => $custUserId,
+                    'target_role' => RentalService::ROLE_CUSTOMER,
+                    'type' => 'refund_processed',
+                    'title' => "Deposit Adjustment: $bookingRef",
+                    'message' => "A deposit deduction of $" . number_format($amount, 2) . " was applied to booking $bookingRef. Reason: $reason",
+                    'reference_id' => $order_id,
+                    'reference_type' => 'order',
+                    'idempotency_key' => "dep_ded_{$order_id}_" . time()
+                ]);
+            } else {
+                $error = $res['message'];
+            }
+        }
+    } elseif ($op === 'refund_deposit') {
+        if (!$can_manage_refunds) {
+            $error = "Permission denied: Your role ($user_role) cannot process deposit refunds.";
+        } else {
             $amount = (float)($_POST['refund_amount'] ?? 0);
             $method = $_POST['refund_method'] ?? 'cash';
             $ref = trim($_POST['refund_reference'] ?? ('DEP-REF-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4))));
             $res = RentalService::refundDeposit($conn, $order_id, $amount, $method, $ref, $user_id, "Security deposit refund");
-            $res['success'] ? $msg = $res['message'] : $error = $res['message'];
-        } elseif ($op === 'record_handover') {
+            if ($res['success']) {
+                $msg = $res['message'];
+                RentalService::createNotification($conn, [
+                    'user_id' => $custUserId,
+                    'target_role' => RentalService::ROLE_CUSTOMER,
+                    'type' => 'refund_processed',
+                    'title' => "Deposit Refund: $bookingRef",
+                    'message' => "Security deposit refund of $" . number_format($amount, 2) . " issued via $method. Ref: $ref",
+                    'reference_id' => $order_id,
+                    'reference_type' => 'order',
+                    'idempotency_key' => "dep_ref_{$order_id}_" . time()
+                ]);
+            } else {
+                $error = $res['message'];
+            }
+        }
+    } elseif ($op === 'record_handover') {
+        if (!$can_manage_handover) {
+            $error = "Permission denied: Your role ($user_role) cannot record vehicle handovers.";
+        } else {
             $odometer = max(0, (int)($_POST['odometer'] ?? 0));
             $fuel = $_POST['fuel_level'] ?? 'Full';
             $notes = trim($_POST['handover_notes'] ?? '');
             $res = RentalService::recordHandover($conn, $order_id, $user_id, $odometer, $fuel, $notes);
-            $res['success'] ? $msg = $res['message'] : $error = $res['message'];
-        } elseif ($op === 'record_return') {
+            if ($res['success']) {
+                $msg = $res['message'];
+                RentalService::createNotification($conn, [
+                    'user_id' => $custUserId,
+                    'target_role' => RentalService::ROLE_CUSTOMER,
+                    'type' => 'handover_completed',
+                    'title' => "Vehicle Handover Completed: $bookingRef",
+                    'message' => "Your vehicle handover is recorded. Departure Odometer: $odometer km, Fuel: $fuel. Safe travels!",
+                    'reference_id' => $order_id,
+                    'reference_type' => 'order',
+                    'idempotency_key' => "handover_{$order_id}_" . date('Ymd')
+                ]);
+            } else {
+                $error = $res['message'];
+            }
+        }
+    } elseif ($op === 'record_return') {
+        if (!$can_manage_handover) {
+            $error = "Permission denied: Your role ($user_role) cannot record vehicle returns.";
+        } else {
             $odometer = max(0, (int)($_POST['return_odometer'] ?? 0));
             $fuel = $_POST['return_fuel_level'] ?? 'Full';
             $damageFee = max(0.00, (float)($_POST['damage_fee'] ?? 0));
             $damageDesc = trim($_POST['damage_desc'] ?? '');
             $inspectionNotes = trim($_POST['inspection_notes'] ?? '');
             $res = RentalService::recordReturn($conn, $order_id, $user_id, $odometer, $fuel, $inspectionNotes, $damageFee, $damageDesc);
-            $res['success'] ? $msg = $res['message'] : $error = $res['message'];
-        } elseif ($op === 'complete_rental') {
+            if ($res['success']) {
+                $msg = $res['message'];
+                RentalService::createNotification($conn, [
+                    'user_id' => $custUserId,
+                    'target_role' => RentalService::ROLE_CUSTOMER,
+                    'type' => 'return_completed',
+                    'title' => "Vehicle Return Inspected: $bookingRef",
+                    'message' => "Vehicle return recorded. Return Odometer: $odometer km, Fuel: $fuel. Return inspection completed.",
+                    'reference_id' => $order_id,
+                    'reference_type' => 'order',
+                    'idempotency_key' => "return_{$order_id}_" . date('Ymd')
+                ]);
+            } else {
+                $error = $res['message'];
+            }
+        }
+    } elseif ($op === 'complete_rental') {
+        if (!$can_manage_handover && !$can_manage_bookings) {
+            $error = "Permission denied: Your role ($user_role) cannot complete rentals.";
+        } else {
             $depAction = $_POST['deposit_action'] ?? 'refund';
             $depMethod = $_POST['deposit_refund_method'] ?? 'cash';
             $res = RentalService::completeRental($conn, $order_id, $user_id, $depAction, $depMethod);
-            $res['success'] ? $msg = $res['message'] : $error = $res['message'];
-        } elseif ($op === 'change_status') {
+            if ($res['success']) {
+                $msg = $res['message'];
+                RentalService::createNotification($conn, [
+                    'user_id' => $custUserId,
+                    'target_role' => RentalService::ROLE_CUSTOMER,
+                    'type' => 'return_completed',
+                    'title' => "Rental Completed: $bookingRef",
+                    'message' => "Rental $bookingRef has been finalized and marked Completed. Thank you for choosing Joul Rental!",
+                    'reference_id' => $order_id,
+                    'reference_type' => 'order',
+                    'idempotency_key' => "comp_{$order_id}_" . date('Ymd')
+                ]);
+            } else {
+                $error = $res['message'];
+            }
+        }
+    } elseif ($op === 'change_status') {
+        if (!$can_manage_bookings) {
+            $error = "Permission denied: Your role ($user_role) cannot change booking status.";
+        } else {
             $newStatus = $_POST['new_status'] ?? '';
             $res = RentalService::updateBookingStatus($conn, $order_id, $newStatus, $user_id);
             $res['success'] ? $msg = $res['message'] : $error = $res['message'];
         }
     }
 
-    // Customer or Admin Cancellation
+    // Customer or Staff Cancellation
     if ($op === 'cancel_booking') {
         $reason = trim($_POST['cancel_reason'] ?? 'Customer cancellation');
-        $overrideFee = isset($_POST['override_fee']) ? (float)$_POST['override_fee'] : null;
-        $res = RentalService::cancelBookingWithFinancials($conn, $order_id, $user_id, $reason, $is_admin, $overrideFee);
-        $res['success'] ? $msg = $res['message'] : $error = $res['message'];
+        $overrideFee = ($is_staff && isset($_POST['override_fee'])) ? (float)$_POST['override_fee'] : null;
+        $res = RentalService::cancelBookingWithFinancials($conn, $order_id, $user_id, $reason, $is_staff, $overrideFee);
+        if ($res['success']) {
+            $msg = $res['message'];
+            RentalService::createNotification($conn, [
+                'user_id' => $custUserId,
+                'target_role' => RentalService::ROLE_CUSTOMER,
+                'type' => 'booking_cancelled',
+                'title' => "Booking Cancelled: $bookingRef",
+                'message' => "Booking $bookingRef has been cancelled. Reason: $reason",
+                'reference_id' => $order_id,
+                'reference_type' => 'order',
+                'idempotency_key' => "cancel_{$order_id}_" . time()
+            ]);
+            if (!$is_staff) {
+                RentalService::createNotification($conn, [
+                    'target_role' => RentalService::ROLE_RENTAL_MANAGER,
+                    'type' => 'booking_cancelled',
+                    'title' => "Customer Cancelled: $bookingRef",
+                    'message' => "Booking $bookingRef was cancelled by the customer. Reason: $reason",
+                    'reference_id' => $order_id,
+                    'reference_type' => 'order',
+                    'idempotency_key' => "cancel_staff_{$order_id}_" . time()
+                ]);
+            }
+        } else {
+            $error = $res['message'];
+        }
     }
 }
 
 // Recalculate and fetch up-to-date booking record
 RentalService::recalculateOrderFinancials($conn, $order_id);
 
-if ($is_admin) {
+if ($is_staff) {
     $stmt = $conn->prepare("
         SELECT o.*, u.name as customer_name, u.email as customer_email, 
                u.phone as customer_phone, u.address as customer_address, 
@@ -264,7 +450,7 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                 <div style="font-size:11px; color:#166534; margin-top:5px;">
                     Verified by <?= htmlspecialchars($order['doc_staff_name'] ?? 'Staff') ?> on <?= date('M j, Y, g:i A', strtotime($order['documents_verified_at'])) ?>
                 </div>
-            <?php elseif ($is_admin): ?>
+            <?php elseif ($can_manage_bookings): ?>
                 <form method="post" style="margin-top:10px;">
                     <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                     <input type="hidden" name="operation" value="verify_documents">
@@ -306,7 +492,7 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                     <?php if ($order['handover_notes']): ?>
                         <p><strong>Notes:</strong> <?= htmlspecialchars($order['handover_notes']) ?></p>
                     <?php endif; ?>
-                <?php elseif ($is_admin && $order['status'] === 'Approved'): ?>
+                <?php elseif ($can_manage_handover && $order['status'] === 'Approved'): ?>
                     <form method="post">
                         <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                         <input type="hidden" name="operation" value="record_handover">
@@ -356,7 +542,7 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                     <?php if ($order['return_notes']): ?>
                         <p><strong>Notes:</strong> <?= htmlspecialchars($order['return_notes']) ?></p>
                     <?php endif; ?>
-                <?php elseif ($is_admin && $order['status'] === 'Active'): ?>
+                <?php elseif ($can_manage_handover && $order['status'] === 'Active'): ?>
                     <form method="post">
                         <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                         <input type="hidden" name="operation" value="record_return">
@@ -441,7 +627,7 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                     <th>Amount</th>
                     <th>Status</th>
                     <th>Staff</th>
-                    <?php if ($is_admin): ?><th>Action</th><?php endif; ?>
+                    <?php if ($can_manage_payments): ?><th>Action</th><?php endif; ?>
                 </tr>
             </thead>
             <tbody>
@@ -459,7 +645,7 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                             </span>
                         </td>
                         <td><?= htmlspecialchars($p['staff_name'] ?? 'System') ?></td>
-                        <?php if ($is_admin): ?>
+                        <?php if ($can_manage_payments): ?>
                             <td>
                                 <?php if ($p['status'] === 'pending'): ?>
                                     <form method="post" style="display:inline-block;">
@@ -478,13 +664,13 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                     </tr>
                 <?php endwhile; ?>
             <?php else: ?>
-                <tr><td colspan="<?= $is_admin ? 8 : 7 ?>" style="text-align:center; color:#666; padding:15px;">No payments recorded for this booking yet.</td></tr>
+                <tr><td colspan="<?= $can_manage_payments ? 8 : 7 ?>" style="text-align:center; color:#666; padding:15px;">No payments recorded for this booking yet.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>
 
-        <!-- Admin Financial Controls -->
-        <?php if ($is_admin && !in_array($order['status'], ['Completed', 'Cancelled'])): ?>
+        <!-- Financial Controls (for authorized payments staff) -->
+        <?php if ($can_manage_payments && !in_array($order['status'], ['Completed', 'Cancelled'])): ?>
             <div style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid #e2e8f0; margin-top:15px;">
                 <h4 style="margin-top:0;">Record New Payment / Deposit</h4>
                 <form method="post" style="display:grid; grid-template-columns: repeat(5, 1fr) auto; gap:10px; align-items:flex-end;">
@@ -527,8 +713,8 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
             </div>
         <?php endif; ?>
 
-        <!-- Deposit Refund / Completion Actions for Admin -->
-        <?php if ($is_admin && $order['return_at'] && $order['status'] !== 'Completed'): ?>
+        <!-- Deposit Refund / Completion Actions for Staff -->
+        <?php if (($can_manage_handover || $can_manage_refunds) && $order['return_at'] && $order['status'] !== 'Completed'): ?>
             <div style="background:#eff6ff; padding:15px; border-radius:6px; border:1px solid #bfdbfe; margin-top:15px;">
                 <h4 style="margin-top:0; color:#1e40af;">Final Settlement & Rental Completion</h4>
                 <p style="font-size:13px; color:#333; margin-bottom:12px;">
@@ -560,7 +746,7 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
     </section>
 
     <!-- FINANCIAL & OPERATIONAL AUDIT TRAIL -->
-    <?php if ($is_admin && $auditLogs && $auditLogs->num_rows > 0): ?>
+    <?php if ($is_staff && $auditLogs && $auditLogs->num_rows > 0): ?>
         <section class="panel" style="margin-bottom: 25px; padding: 20px;">
             <h3 style="margin-top:0;">Audit Trail & Security Logs</h3>
             <table class="table-custom">
@@ -589,9 +775,11 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
     <?php endif; ?>
 
     <div style="margin-top: 30px; text-align: center; display: flex; justify-content: center; gap: 12px;">
-        <?php if ($is_admin): ?>
+        <?php if ($is_staff): ?>
             <a href="orders.php" class="submit-btn" style="text-decoration:none; display:inline-block;">&larr; Back to Bookings</a>
-            <a href="finance.php" class="submit-btn" style="text-decoration:none; display:inline-block; background: #234234;">Financial Dashboard & Ledger</a>
+            <?php if ($user_role === 'admin' || $user_role === 'finance_staff'): ?>
+                <a href="finance.php" class="submit-btn" style="text-decoration:none; display:inline-block; background: #234234;">Financial Dashboard & Ledger</a>
+            <?php endif; ?>
         <?php else: ?>
             <a href="user_orders.php" class="submit-btn" style="text-decoration:none; display:inline-block;">&larr; Back to My Bookings</a>
         <?php endif; ?>

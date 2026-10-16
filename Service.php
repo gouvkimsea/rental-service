@@ -28,6 +28,18 @@ $cat_result = $conn->query("SELECT id, name FROM categories ORDER BY name");
    <a href="user_orders.php">
         <button class="cart-button" type="button">My Orders</button>
     </a> 
+    <?php if ($name): ?>
+    <a href="notifications.php">
+        <button class="cart-button" type="button" style="display:inline-flex; align-items:center; gap:4px;">
+            🔔 <?php 
+                $uNotif = RentalService::getUnreadNotificationCount($conn, (int)$user_id, 'customer');
+                if ($uNotif > 0): 
+            ?>
+            <span style="background:#e53e3e; color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; font-weight:700;"><?= $uNotif ?></span>
+            <?php endif; ?>
+        </button>
+    </a>
+    <?php endif; ?>
     <a href="<?= $name ? 'profile.php' : 'login.php' ?>">
         <button class="cart-button" type="button"><?= $name ? 'Profile' : 'Login' ?></button>
     </a>

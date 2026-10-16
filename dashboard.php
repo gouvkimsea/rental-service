@@ -1,13 +1,18 @@
 <?php
 require_once 'config.php';
+require_once 'rental_service.php';
 
-if (!isset($_SESSION['user_id']) || !$_SESSION['is_admin']) {
-    header("Location: login.php");
-    exit();
-}
+RentalService::requirePermission($conn, 'view_dashboard');
+
+$currentUserId = (int)$_SESSION['user_id'];
+$currentUserRole = $_SESSION['role'] ?? RentalService::getUserRole($conn, $currentUserId);
+$unread_sidebar_count = RentalService::getUnreadNotificationCount($conn, $currentUserId, $currentUserRole);
 
 // Expire stale reservations
 RentalService::expireStaleBookings($conn);
+
+// Fetch operational metrics
+$operational = RentalService::getOperationalDashboardMetrics($conn);
 
 // --- STATS ---
 $revenue = $conn->query("SELECT SUM(total_amount) AS total FROM orders WHERE order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND status IN ('Approved', 'Active', 'Completed')")->fetch_assoc()['total'] ?? 0;
@@ -69,29 +74,61 @@ $activity = $conn->query("
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
+    <title>Dashboard - Operations Overview</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        .ops-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+        .ops-card { background: #fff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 14px 18px; text-decoration: none; color: inherit; display: flex; flex-direction: column; transition: all 0.15s ease; }
+        .ops-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+        .ops-card-label { font-size: 11px; text-transform: uppercase; font-weight: 700; color: #64748b; margin-bottom: 4px; }
+        .ops-card-val { font-size: 22px; font-weight: 800; color: #0f172a; }
+        .ops-card--alert { border-color: #fecaca; background: #fff5f5; }
+        .ops-card--alert .ops-card-val { color: #dc2626; }
+        .ops-card--warn { border-color: #fef08a; background: #fefce8; }
+        .ops-card--warn .ops-card-val { color: #854d0e; }
+        .ops-card--info { border-color: #bfdbfe; background: #eff6ff; }
+        .ops-card--info .ops-card-val { color: #1d4ed8; }
+        .badge-count { background: #e53e3e; color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
+    </style>
 </head>
 <body>
-<div class="app-shell">
+<div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
     <!-- Sidebar -->
     <aside class="app-sidebar">
         <a class="logo" href="Service.php">Joul Rental</a>
         <nav class="side-nav">
             <a class="active" href="dashboard.php"><span class="dot"></span>Overview</a>
-            <a href="Product.php"><span class="dot"></span>Products</a>
-            <a href="product_edit.php"><span class="dot"></span>Product Management</a>
-            <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
-            <a href="categories.php"><span class="dot"></span>Categories</a>
-            <a href="orders.php"><span class="dot"></span>Orders</a>
-            <a href="finance.php"><span class="dot"></span>Finance</a>
-            <a href="users.php"><span class="dot"></span>Users</a>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_vehicles')): ?>
+                <a href="Product.php"><span class="dot"></span>Products</a>
+                <a href="product_edit.php"><span class="dot"></span>Product Management</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_maintenance')): ?>
+                <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_categories')): ?>
+                <a href="categories.php"><span class="dot"></span>Categories</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_bookings')): ?>
+                <a href="orders.php"><span class="dot"></span>Orders</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'view_finance_reports')): ?>
+                <a href="finance.php"><span class="dot"></span>Finance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_customers') || RentalService::checkPermission($conn, $currentUserId, 'manage_staff_roles')): ?>
+                <a href="users.php"><span class="dot"></span>Users</a>
+            <?php endif; ?>
+            <a href="notifications.php">
+                <span class="dot"></span>Notifications
+                <?php if ($unread_sidebar_count > 0): ?>
+                    <span class="badge-count" style="margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                <?php endif; ?>
+            </a>
         </nav>
         <div class="sidebar-footer">
             <div class="profile-avatar"><?= strtoupper(substr($_SESSION['username'],0,2)) ?></div>
             <div>
                 <p class="name"><?= htmlspecialchars($_SESSION['username']) ?></p>
-                <p class="role"><a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
+                <p class="role"><span style="text-transform: capitalize; font-size:11px; color:#64748b;"><?= htmlspecialchars($currentUserRole) ?></span> | <a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
             </div>
         </div>
     </aside>
@@ -99,16 +136,47 @@ $activity = $conn->query("
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="dashboard.php" class="logo"> <h1>Overview</h1> </a>
-                <p class="subtitle"><?= date('l, F j, Y') ?></p>
+                <a href="dashboard.php" class="logo"> <h1>Operations Overview</h1> </a>
+                <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
             </div>
-            <div class="topbar-actions">
-
-                <a href="Product.php" class="primary-link">Add product</a>
+            <div class="topbar-actions" style="display:flex; align-items:center; gap:10px;">
+                <a href="notifications.php" style="text-decoration:none; position:relative; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
+                    🔔 Notifications
+                    <?php if ($unread_sidebar_count > 0): ?>
+                        <span class="badge-count"><?= $unread_sidebar_count ?></span>
+                    <?php endif; ?>
+                </a>
+                <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_vehicles')): ?>
+                    <a href="Product.php" class="primary-link">Inventory</a>
+                <?php endif; ?>
             </div>
         </header>
 
         <main class="dashboard-body">
+            <!-- Operational Control Strip -->
+            <div class="ops-strip">
+                <a href="orders.php?status=upcoming_pickups" class="ops-card ops-card--info">
+                    <span class="ops-card-label">🚗 Upcoming Pickups (24h)</span>
+                    <span class="ops-card-val"><?= $operational['upcoming_pickups'] ?></span>
+                </a>
+                <a href="orders.php?status=Active" class="ops-card">
+                    <span class="ops-card-label">🛣️ Active Rentals On-Road</span>
+                    <span class="ops-card-val"><?= $operational['active_rentals'] ?></span>
+                </a>
+                <a href="orders.php?status=overdue_returns" class="ops-card <?= $operational['overdue_returns'] > 0 ? 'ops-card--alert' : '' ?>">
+                    <span class="ops-card-label">⚠️ Overdue Returns</span>
+                    <span class="ops-card-val"><?= $operational['overdue_returns'] ?></span>
+                </a>
+                <a href="orders.php?status=maint_conflict" class="ops-card <?= $operational['maintenance_conflicts'] > 0 ? 'ops-card--alert' : '' ?>">
+                    <span class="ops-card-label">🚨 Maintenance Conflicts</span>
+                    <span class="ops-card-val"><?= $operational['maintenance_conflicts'] ?></span>
+                </a>
+                <a href="maintenance.php" class="ops-card <?= $operational['vehicles_under_maintenance'] > 0 ? 'ops-card--warn' : '' ?>">
+                    <span class="ops-card-label">🛠️ Fleet In Service</span>
+                    <span class="ops-card-val"><?= $operational['vehicles_under_maintenance'] ?></span>
+                </a>
+            </div>
+
             <!-- Stats -->
             <section class="stat-grid">
                 <div class="stat-card">

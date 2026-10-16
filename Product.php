@@ -1,9 +1,12 @@
 <?php
 require_once 'config.php';
-if (!isset($_SESSION['user_id']) || !$_SESSION['is_admin']) {
-    header("Location: login.php");
-    exit();
-}
+require_once 'rental_service.php';
+
+RentalService::requirePermission($conn, 'manage_vehicles');
+
+$currentUserId = (int)$_SESSION['user_id'];
+$currentUserRole = $_SESSION['role'] ?? RentalService::getUserRole($conn, $currentUserId);
+$unread_sidebar_count = RentalService::getUnreadNotificationCount($conn, $currentUserId, $currentUserRole);
 
 $message = $_SESSION['message'] ?? '';
 unset($_SESSION['message']);
@@ -49,7 +52,7 @@ $categories = $conn->query("SELECT id, name FROM categories ORDER BY name");
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vehicle Inventory</title>
+    <title>Vehicle Inventory - Operational Status</title>
     <link rel="stylesheet" href="style.css">
     <style>
         .badge { padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
@@ -61,6 +64,7 @@ $categories = $conn->query("SELECT id, name FROM categories ORDER BY name");
         .badge-cond-good { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
         .badge-cond-fair { background: #fef9c3; color: #854d0e; }
         .badge-cond-needs_service { background: #fee2e2; color: #b91c1c; }
+        .badge-count { background: #e53e3e; color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
     </style>
 </head>
 <body>
@@ -71,17 +75,33 @@ $categories = $conn->query("SELECT id, name FROM categories ORDER BY name");
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <a class="active" href="Product.php"><span class="dot"></span>Products</a>
             <a href="product_edit.php"><span class="dot"></span>Product Management</a>
-            <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
-            <a href="categories.php"><span class="dot"></span>Categories</a>
-            <a href="orders.php"><span class="dot"></span>Orders</a>
-            <a href="finance.php"><span class="dot"></span>Finance</a>
-            <a href="users.php"><span class="dot"></span>Users</a>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_maintenance')): ?>
+                <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_categories')): ?>
+                <a href="categories.php"><span class="dot"></span>Categories</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_bookings')): ?>
+                <a href="orders.php"><span class="dot"></span>Orders</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'view_finance_reports')): ?>
+                <a href="finance.php"><span class="dot"></span>Finance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_customers') || RentalService::checkPermission($conn, $currentUserId, 'manage_staff_roles')): ?>
+                <a href="users.php"><span class="dot"></span>Users</a>
+            <?php endif; ?>
+            <a href="notifications.php">
+                <span class="dot"></span>Notifications
+                <?php if ($unread_sidebar_count > 0): ?>
+                    <span class="badge-count" style="margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                <?php endif; ?>
+            </a>
         </nav> 
         <div class="sidebar-footer">
             <div class="profile-avatar"><?= strtoupper(substr($_SESSION['username'],0,2)) ?></div>
             <div>
                 <p class="name"><?= htmlspecialchars($_SESSION['username']) ?></p>
-                <p class="role"><a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
+                <p class="role"><span style="text-transform: capitalize; font-size:11px; color:#64748b;"><?= htmlspecialchars($currentUserRole) ?></span> | <a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
             </div>
         </div>
     </aside>
@@ -89,10 +109,13 @@ $categories = $conn->query("SELECT id, name FROM categories ORDER BY name");
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="Product.php" class="logo"><h1>Vehicle Inventory</h1></a>
-                <p class="subtitle"><?= date('l, F j, Y') ?></p>
+                <a href="Product.php" class="logo"><h1>Vehicle Inventory & Fleet Status</h1></a>
+                <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
             </div>
-            <div class="topbar-actions">
+            <div class="topbar-actions" style="display:flex; align-items:center; gap:10px;">
+                <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
+                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span class="badge-count"><?= $unread_sidebar_count ?></span><?php endif; ?>
+                </a>
                 <a href="product_edit.php" class="submit-btn" style="text-decoration:none; display:inline-block; padding: 10px 18px;">+ Add New Vehicle</a>
             </div>
         </header>
@@ -174,6 +197,21 @@ $categories = $conn->query("SELECT id, name FROM categories ORDER BY name");
                                 <span class="badge badge-<?= htmlspecialchars($row['status']) ?>">
                                     <?= ucfirst($row['status']) ?>
                                 </span>
+                                <?php 
+                                    $opStatus = RentalService::getVehicleOperationalStatus($conn, (int)$row['id']);
+                                    $opBg = '#f1f5f9'; $opCol = '#475569';
+                                    if ($opStatus['state'] === 'available') { $opBg = '#dcfce7'; $opCol = '#166534'; }
+                                    elseif ($opStatus['state'] === 'rented') { 
+                                        if (!empty($opStatus['is_overdue'])) { $opBg = '#fee2e2'; $opCol = '#b91c1c'; }
+                                        else { $opBg = '#e0f2fe'; $opCol = '#0369a1'; }
+                                    } elseif ($opStatus['state'] === 'maintenance') { $opBg = '#fef08a'; $opCol = '#854d0e'; }
+                                    elseif ($opStatus['state'] === 'reserved_today') { $opBg = '#fef3c7'; $opCol = '#92400e'; }
+                                ?>
+                                <div style="margin-top: 4px;">
+                                    <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; display: inline-block; background: <?= $opBg ?>; color: <?= $opCol ?>;">
+                                        <?= htmlspecialchars($opStatus['label']) ?>
+                                    </span>
+                                </div>
                             <?php endif; ?>
                         </td>
                         <td>
@@ -186,9 +224,9 @@ $categories = $conn->query("SELECT id, name FROM categories ORDER BY name");
                             <a href="product_edit.php?id=<?= $row['id'] ?>" style="margin-right:8px;">Edit</a>
                             <a href="maintenance.php?product_id=<?= $row['id'] ?>" style="color:#854d0e; margin-right:8px;">Service</a>
                             <?php if ($row['is_archived']): ?>
-                                <a href="product_delete.php?id=<?= $row['id'] ?>&action=unarchive" onclick="return confirm('Restore this vehicle to active inventory?')" style="color:#2d5a27;">Restore</a>
+                                <a href="product_delete.php?id=<?= $row['id'] ?>&action=unarchive&token=<?= $_SESSION['csrf_token'] ?>" onclick="return confirm('Restore this vehicle to active inventory?')" style="color:#2d5a27;">Restore</a>
                             <?php else: ?>
-                                <a href="product_delete.php?id=<?= $row['id'] ?>&action=archive" onclick="return confirm('Archive vehicle #<?= $row['id'] ?>? This safely preserves all rental history.')" style="color:#a72d25;">Archive</a>
+                                <a href="product_delete.php?id=<?= $row['id'] ?>&action=archive&token=<?= $_SESSION['csrf_token'] ?>" onclick="return confirm('Archive vehicle #<?= $row['id'] ?>? This safely preserves all rental history.')" style="color:#a72d25;">Archive</a>
                             <?php endif; ?>
                         </td>
                     </tr>

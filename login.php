@@ -9,7 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $username = trim($_POST['username']);
         $password = $_POST['password'];
 
-        $stmt = $conn->prepare("SELECT id, name, password, is_admin, is_active FROM users WHERE name = ?");
+        $stmt = $conn->prepare("SELECT id, name, password, is_admin, is_active, role FROM users WHERE name = ?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -27,11 +27,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 // Prevent session fixation — regenerate ID on privilege change
                 session_regenerate_id(true);
                 $_SESSION['login_attempts'] = 0;
-                $_SESSION['user_id']   = $row['id'];
+                $_SESSION['user_id']   = (int)$row['id'];
                 $_SESSION['username']  = $row['name'];
-                $_SESSION['is_admin']  = $row['is_admin'];
+                $_SESSION['is_admin']  = (int)$row['is_admin'];
+                $role = !empty($row['role']) ? $row['role'] : ($row['is_admin'] ? 'admin' : 'customer');
+                $_SESSION['role']      = $role;
 
-                if ($row['is_admin']) {
+                RentalService::logSystemAudit($conn, (int)$row['id'], $role, 'auth_permission', 'LOGIN_SUCCESS', (int)$row['id'], 'user', "User {$row['name']} logged in successfully as $role");
+
+                if (in_array($role, ['admin', 'rental_manager', 'finance_staff'], true)) {
                     header("Location: dashboard.php");
                 } else {
                     header("Location: Service.php");
@@ -40,6 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
         $_SESSION['login_attempts'] = ($_SESSION['login_attempts'] ?? 0) + 1;
+        RentalService::logSystemAudit($conn, null, 'guest', 'auth_permission', 'LOGIN_FAILED', null, null, "Failed login attempt for username: $username");
         $error_msg = "Invalid username or password.";
     }
 }

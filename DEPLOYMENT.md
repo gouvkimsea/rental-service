@@ -265,6 +265,12 @@ RentalKH maintains three distinct, dedicated logging channels:
    - Records logins, role authorizations, permission-denied events, vehicle status transitions, maintenance schedules, and security incidents.
    - Automatically sanitizes and masks sensitive data (`password=***`, `token=***`, `cvv=***`).
 
+### Production Health Check Probe (`healthcheck.php`)
+RentalKH provides a diagnostic probe for container orchestration (Kubernetes, Docker), uptime monitors, and load balancers:
+- **HTTP Endpoint**: `GET /healthcheck.php?format=json` (returns HTTP 200 with structured JSON status, HTTP 503 if degraded/down)
+- **CLI Diagnostic**: `php healthcheck.php`
+- **Monitored Dimensions**: PHP runtime version, required extensions (`mysqli`, `json`, `session`), MySQL connectivity & query latency, and upload storage write permissions.
+
 ---
 
 ## 8. Recovery from Failed Requests & Transaction Deadlocks

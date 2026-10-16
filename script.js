@@ -132,12 +132,13 @@ function renderCart() {
       daysMsg.style.color = (startDateInput && startDateInput.value && endDateInput && endDateInput.value) ? '#666' : '#a72d25';
   }
 
-  cartItems.innerHTML = '';
+  if (cartItems) cartItems.innerHTML = '';
   let totalItems = 0;
   let totalPrice = 0;
   cart.forEach((item) => {
     totalItems += item.quantity;
     totalPrice += (item.price * item.quantity) * days;
+    if (cartItems) cartItems.appendChild(createCartItem(item));
   });
   cartCount.textContent = totalItems;
   if (cartTotal) cartTotal.textContent = currency.format(totalPrice);

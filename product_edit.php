@@ -71,17 +71,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $allowed_exts  = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
         $allowed_mimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
         $ext  = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime = finfo_file($finfo, $_FILES['image']['tmp_name']);
-        finfo_close($finfo);
-
-        if (!in_array($ext, $allowed_exts) || !in_array($mime, $allowed_mimes)) {
-            $error = 'Only image files (jpg, png, gif, webp) are allowed.';
+        
+        if ($_FILES['image']['size'] > 5 * 1024 * 1024) {
+            $error = 'Image file size must not exceed 5 MB.';
         } else {
-            $upload_dir = 'image/';
-            if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
-            $image_name = uniqid() . '.' . $ext;
-            move_uploaded_file($_FILES['image']['tmp_name'], $upload_dir . $image_name);
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime = finfo_file($finfo, $_FILES['image']['tmp_name']);
+            finfo_close($finfo);
+
+            if (!in_array($ext, $allowed_exts) || !in_array($mime, $allowed_mimes)) {
+                $error = 'Only image files (jpg, png, gif, webp) are allowed.';
+            } else {
+                $upload_dir = 'image/';
+                if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+                $image_name = uniqid() . '.' . $ext;
+                move_uploaded_file($_FILES['image']['tmp_name'], $upload_dir . $image_name);
+            }
         }
     }
 

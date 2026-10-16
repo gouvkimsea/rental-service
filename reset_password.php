@@ -23,7 +23,9 @@ $reset_data = $result->fetch_assoc();
 
 // Check expiration (e.g. 1 hour)
 if (strtotime($reset_data['created_at']) < strtotime('-1 hour')) {
-    $conn->query("DELETE FROM password_resets WHERE email = '$email'");
+    $delExpired = $conn->prepare("DELETE FROM password_resets WHERE email = ?");
+    $delExpired->bind_param("s", $email);
+    $delExpired->execute();
     die('This password reset link has expired. Please request a new one.');
 }
 

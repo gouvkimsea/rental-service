@@ -28,28 +28,63 @@ A web-based vehicle and equipment rental management platform built with PHP and 
 - PHP 8.x
 - MySQL or MariaDB (e.g., via XAMPP)
 
-### Installation
+### Installation & Setup
 
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/gouvkimsea/rental-service.git
+   cd rental-service
    ```
 
-2. **Import the Database:**
-   - Create a MySQL database named `rentalkh` (or your preferred name).
-   - Import the schema from `database.sql`:
+2. **Configure Environment:**
+   - Copy the template `.env.example` to `.env`:
+     ```bash
+     cp .env.example .env
+     ```
+   - Update database credentials and operational settings in `.env`.
+
+3. **Import Database & Run Migrations:**
+   - Create a MySQL database named `rentalkh`:
+     ```bash
+     mysql -u root -p -e "CREATE DATABASE rentalkh CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+     ```
+   - Apply base schema and sequential migrations:
      ```bash
      mysql -u root -p rentalkh < database.sql
+     mysql -u root -p rentalkh < migration_v2.sql
+     mysql -u root -p rentalkh < migration_v3.sql
+     mysql -u root -p rentalkh < migration_v4.sql
      ```
 
-3. **Configure Database Connection:**
-   - Review or modify `config.php` to match your local database settings (defaults to `localhost`, user `root`, empty password, and database `rentalkh`).
+4. **Run the Application Locally:**
+   ```bash
+   php -S 127.0.0.1:8000
+   ```
+   Navigate to `http://127.0.0.1:8000/`.
 
-4. **Run the Application:**
-   - Using the PHP built-in server:
-     ```bash
-     php -S localhost:8000
-     ```
-   - Or place the project in your web server root (e.g., `C:/xampp/htdocs/reantalservise`).
+---
 
-5. Open your browser and navigate to `http://localhost:8000/`.
+## Automated Test Suites
+
+RentalKH includes an automated test harness covering business rules, pricing, operational RBAC, and end-to-end production scenarios:
+
+```bash
+# 1. Complete End-to-End Production Verification (15 Scenarios)
+php tests/production_e2e_tests.php
+
+# 2. Operational Management & Role-Based Access Control (RBAC)
+php tests/operational_management_tests.php
+
+# 3. Financial Integrity, Ledger & Escrow Accounting
+php tests/financial_operations_tests.php
+
+# 4. Rental Business Rules & Concurrency Engine
+php tests/rental_business_tests.php
+```
+
+---
+
+## Production Deployment & Operations
+
+For complete web server configuration (Nginx, Apache, SSL), directory permissions, cron workers, and backup/restore procedures, consult [DEPLOYMENT.md](file:///d:/learn/reantalservise/DEPLOYMENT.md).
+

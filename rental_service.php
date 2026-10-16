@@ -535,7 +535,7 @@ class RentalService {
                 'pricing' => $pricing,
                 'expires_at' => $expiresAt
             ];
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             $conn->rollback();
             return ['success' => false, 'message' => 'Booking failed: ' . $e->getMessage()];
         }
@@ -616,50 +616,58 @@ class RentalService {
         // Rental refund amount = paid_rental - fee
         $rentalRefund = max(0.00, round($fin['net_rental_paid'] - $fee, 2));
 
-        // Process rental refund entry if refundable amount exists
-        if ($rentalRefund > 0) {
-            $refCode = 'REF-CAN-' . strtoupper(substr(uniqid(), -6));
-            $rStmt = $conn->prepare("
-                INSERT INTO payments (order_id, amount, currency, payment_type, payment_method, payment_reference, status, staff_id, notes, verified_at)
-                VALUES (?, ?, 'USD', 'refund', 'other', ?, 'verified', ?, ?, NOW())
+        $conn->begin_transaction();
+        try {
+            // Process rental refund entry if refundable amount exists
+            if ($rentalRefund > 0) {
+                $refCode = 'REF-CAN-' . strtoupper(substr(uniqid(), -6));
+                $rStmt = $conn->prepare("
+                    INSERT INTO payments (order_id, amount, currency, payment_type, payment_method, payment_reference, status, staff_id, notes, verified_at)
+                    VALUES (?, ?, 'USD', 'refund', 'other', ?, 'verified', ?, ?, NOW())
+                ");
+                $notes = "Automated cancellation refund ($reason)";
+                $rStmt->bind_param("idsis", $orderId, $rentalRefund, $refCode, $userId, $notes);
+                $rStmt->execute();
+            }
+
+            // Security deposit is 100% refundable upon cancellation
+            if ($fin['deposit_held'] > 0) {
+                $depRefCode = 'DEP-CAN-' . strtoupper(substr(uniqid(), -6));
+                $dStmt = $conn->prepare("
+                    INSERT INTO payments (order_id, amount, currency, payment_type, payment_method, payment_reference, status, staff_id, notes, verified_at)
+                    VALUES (?, ?, 'USD', 'deposit_refund', 'other', ?, 'verified', ?, ?, NOW())
+                ");
+                $dNotes = "Security deposit full refund on booking cancellation";
+                $dStmt->bind_param("idsis", $orderId, $fin['deposit_held'], $depRefCode, $userId, $dNotes);
+                $dStmt->execute();
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $upd = $conn->prepare("
+                UPDATE orders 
+                SET status = 'Cancelled', cancellation_reason = ?, cancellation_fee = ?, 
+                    cancellation_refund = ?, cancelled_at = ? 
+                WHERE id = ?
             ");
-            $notes = "Automated cancellation refund ($reason)";
-            $rStmt->bind_param("idsis", $orderId, $rentalRefund, $refCode, $userId, $notes);
-            $rStmt->execute();
+            $upd->bind_param("sddsi", $reason, $fee, $rentalRefund, $now, $orderId);
+            $upd->execute();
+
+            self::recalculateOrderFinancials($conn, $orderId, $userId);
+            self::logFinancialAudit($conn, $orderId, $userId, 'CANCELLATION_REFUND', $rentalRefund, "Booking cancelled ($reason). Fee charged: \$$fee, Refunded: \$$rentalRefund.");
+
+            $conn->commit();
+
+            return [
+                'success' => true,
+                'cancellation_fee' => $fee,
+                'refund_amount' => $rentalRefund,
+                'deposit_refunded' => $fin['deposit_held'],
+                'message' => "Booking cancelled. Fee: \$$fee, Rental refund: \$$rentalRefund, Deposit refunded: \${$fin['deposit_held']}."
+            ];
+        } catch (Throwable $e) {
+            $conn->rollback();
+            return ['success' => false, 'message' => 'Cancellation failed: ' . $e->getMessage()];
         }
-
-        // Security deposit is 100% refundable upon cancellation
-        if ($fin['deposit_held'] > 0) {
-            $depRefCode = 'DEP-CAN-' . strtoupper(substr(uniqid(), -6));
-            $dStmt = $conn->prepare("
-                INSERT INTO payments (order_id, amount, currency, payment_type, payment_method, payment_reference, status, staff_id, notes, verified_at)
-                VALUES (?, ?, 'USD', 'deposit_refund', 'other', ?, 'verified', ?, ?, NOW())
-            ");
-            $dNotes = "Security deposit full refund on booking cancellation";
-            $dStmt->bind_param("idsis", $orderId, $fin['deposit_held'], $depRefCode, $userId, $dNotes);
-            $dStmt->execute();
-        }
-
-        $now = date('Y-m-d H:i:s');
-        $upd = $conn->prepare("
-            UPDATE orders 
-            SET status = 'Cancelled', cancellation_reason = ?, cancellation_fee = ?, 
-                cancellation_refund = ?, cancelled_at = ? 
-            WHERE id = ?
-        ");
-        $upd->bind_param("sddsi", $reason, $fee, $rentalRefund, $now, $orderId);
-        $upd->execute();
-
-        self::recalculateOrderFinancials($conn, $orderId, $userId);
-        self::logFinancialAudit($conn, $orderId, $userId, 'CANCELLATION_REFUND', $rentalRefund, "Booking cancelled ($reason). Fee charged: \$$fee, Refunded: \$$rentalRefund.");
-
-        return [
-            'success' => true,
-            'cancellation_fee' => $fee,
-            'refund_amount' => $rentalRefund,
-            'deposit_refunded' => $fin['deposit_held'],
-            'message' => "Booking cancelled. Fee: \$$fee, Rental refund: \$$rentalRefund, Deposit refunded: \${$fin['deposit_held']}."
-        ];
     }
 
     /**
@@ -739,16 +747,20 @@ class RentalService {
         ");
         $stmt->bind_param("idssssiss", $orderId, $amount, $paymentType, $paymentMethod, $paymentRef, $status, $staffId, $notes, $verifiedAt);
 
-        if ($stmt->execute()) {
+        $conn->begin_transaction();
+        try {
+            $stmt->execute();
             $payId = $conn->insert_id;
             if ($autoVerify) {
                 self::recalculateOrderFinancials($conn, $orderId, $staffId);
             }
             self::logFinancialAudit($conn, $orderId, $staffId, $autoVerify ? 'PAYMENT_VERIFIED' : 'PAYMENT_RECORDED', $amount, "Payment recorded ($paymentType via $paymentMethod, Ref: $paymentRef)", ['payment_id' => $payId]);
+            $conn->commit();
             return ['success' => true, 'payment_id' => $payId, 'message' => "Payment of \$$amount recorded ($status)."];
+        } catch (Throwable $e) {
+            $conn->rollback();
+            return ['success' => false, 'message' => 'Payment failed: ' . $e->getMessage()];
         }
-
-        return ['success' => false, 'message' => 'Database error: ' . $stmt->error];
     }
 
     /**
@@ -855,6 +867,8 @@ class RentalService {
         } elseif ($depositHeld <= 0.001) {
             if ($depositDeducted >= $depositCollected) {
                 $depositStatus = 'forfeited';
+            } elseif ($depositDeducted > 0 && $depositRefunded > 0) {
+                $depositStatus = 'partially_refunded';
             } else {
                 $depositStatus = 'fully_refunded';
             }
@@ -914,15 +928,35 @@ class RentalService {
             return ['success' => false, 'message' => "Cannot deduct \$$amount. Maximum available held deposit is \${$fin['deposit_held']}."];
         }
 
-        $upd = $conn->prepare("UPDATE orders SET deposit_deducted = deposit_deducted + ? WHERE id = ?");
-        $upd->bind_param("di", $amount, $orderId);
-        if ($upd->execute()) {
+        $conn->begin_transaction();
+        try {
+            $upd = $conn->prepare("UPDATE orders SET deposit_deducted = deposit_deducted + ? WHERE id = ?");
+            $upd->bind_param("di", $amount, $orderId);
+            $upd->execute();
+
             self::recalculateOrderFinancials($conn, $orderId, $staffId);
             self::logFinancialAudit($conn, $orderId, $staffId, 'DEPOSIT_DEDUCTION', $amount, $reason);
+            
+            $conn->commit();
             return ['success' => true, 'message' => "Successfully deducted \$$amount from security deposit: $reason"];
+        } catch (Throwable $e) {
+            $conn->rollback();
+            return ['success' => false, 'message' => 'Failed to deduct deposit: ' . $e->getMessage()];
         }
+    }
 
-        return ['success' => false, 'message' => 'Failed to deduct deposit.'];
+    /**
+     * Adjust/deduct security deposit toward fees or damages (supports both parameter order variants).
+     */
+    public static function adjustDeposit(mysqli $conn, int $orderId, float $amount, $staffIdOrReason, $reasonOrStaffId = ''): array {
+        if (is_numeric($staffIdOrReason)) {
+            $staffId = (int)$staffIdOrReason;
+            $reason = (string)$reasonOrStaffId;
+        } else {
+            $reason = (string)$staffIdOrReason;
+            $staffId = (int)$reasonOrStaffId;
+        }
+        return self::deductDeposit($conn, $orderId, $amount, $reason ?: 'Deposit adjustment', $staffId);
     }
 
     /**
@@ -961,13 +995,17 @@ class RentalService {
         ");
         $stmt->bind_param("idssiss", $orderId, $amount, $paymentMethod, $paymentRef, $staffId, $notes, $now);
 
-        if ($stmt->execute()) {
+        $conn->begin_transaction();
+        try {
+            $stmt->execute();
             self::recalculateOrderFinancials($conn, $orderId, $staffId);
             self::logFinancialAudit($conn, $orderId, $staffId, 'DEPOSIT_REFUND', $amount, "Security deposit refund of \$$amount processed via $paymentMethod (Ref: $paymentRef)");
+            $conn->commit();
             return ['success' => true, 'message' => "Successfully refunded \$$amount of security deposit to customer."];
+        } catch (Throwable $e) {
+            $conn->rollback();
+            return ['success' => false, 'message' => 'Failed to record deposit refund: ' . $e->getMessage()];
         }
-
-        return ['success' => false, 'message' => 'Failed to record deposit refund: ' . $stmt->error];
     }
 
     /**
@@ -1027,25 +1065,30 @@ class RentalService {
         }
 
         $now = date('Y-m-d H:i:s');
-        $upd = $conn->prepare("
-            UPDATE orders 
-            SET status = 'Active', handover_at = ?, handover_by = ?, 
-                handover_odometer = ?, handover_fuel_level = ?, handover_notes = ? 
-            WHERE id = ?
-        ");
-        $upd->bind_param("siissi", $now, $staffId, $odometer, $fuelLevel, $notes, $orderId);
+        $conn->begin_transaction();
+        try {
+            $upd = $conn->prepare("
+                UPDATE orders 
+                SET status = 'Active', handover_at = ?, handover_by = ?, 
+                    handover_odometer = ?, handover_fuel_level = ?, handover_notes = ? 
+                WHERE id = ?
+            ");
+            $upd->bind_param("siissi", $now, $staffId, $odometer, $fuelLevel, $notes, $orderId);
+            $upd->execute();
 
-        if ($upd->execute()) {
             // Mark vehicles as 'rented' and update mileage
             if (!empty($productIds)) {
                 $inList = implode(',', $productIds);
                 $conn->query("UPDATE products SET status = 'rented', mileage = $odometer WHERE id IN ($inList)");
             }
             self::logFinancialAudit($conn, $orderId, $staffId, 'VEHICLE_HANDOVER', 0.00, "Vehicle handed over to customer (Odo: $odometer km, Fuel: $fuelLevel). Rental is now Active.");
+            
+            $conn->commit();
             return ['success' => true, 'message' => "Vehicle handover recorded. Rental #{$order['booking_ref']} is now Active."];
+        } catch (Throwable $e) {
+            $conn->rollback();
+            return ['success' => false, 'message' => 'Failed to record handover: ' . $e->getMessage()];
         }
-
-        return ['success' => false, 'message' => 'Failed to record handover.'];
     }
 
     /**
@@ -1112,15 +1155,17 @@ class RentalService {
             $combinedNotes .= " [Damage Claim: \$$damageFee - $damageDesc]";
         }
 
-        $upd = $conn->prepare("
-            UPDATE orders 
-            SET return_at = ?, return_by = ?, return_odometer = ?, return_fuel_level = ?, 
-                return_notes = ?, late_hours = ?, late_fee = ?, fuel_fee = ?, damage_fee = ? 
-            WHERE id = ?
-        ");
-        $upd->bind_param("siissidddi", $now, $staffId, $returnOdometer, $returnFuelLevel, $combinedNotes, $lateHours, $lateFee, $fuelFee, $damageFee, $orderId);
+        $conn->begin_transaction();
+        try {
+            $upd = $conn->prepare("
+                UPDATE orders 
+                SET return_at = ?, return_by = ?, return_odometer = ?, return_fuel_level = ?, 
+                    return_notes = ?, late_hours = ?, late_fee = ?, fuel_fee = ?, damage_fee = ? 
+                WHERE id = ?
+            ");
+            $upd->bind_param("siissidddi", $now, $staffId, $returnOdometer, $returnFuelLevel, $combinedNotes, $lateHours, $lateFee, $fuelFee, $damageFee, $orderId);
+            $upd->execute();
 
-        if ($upd->execute()) {
             // Update vehicle status & mileage
             $vStmt = $conn->prepare("SELECT product_id FROM order_items WHERE order_id = ?");
             $vStmt->bind_param("i", $orderId);
@@ -1149,6 +1194,8 @@ class RentalService {
             self::recalculateOrderFinancials($conn, $orderId, $staffId);
             self::logFinancialAudit($conn, $orderId, $staffId, 'VEHICLE_RETURNED', $lateFee + $fuelFee + $damageFee, "Vehicle returned (Odo: $returnOdometer km, Fuel: $returnFuelLevel, Late Fee: \$$lateFee, Fuel Fee: \$$fuelFee, Damage Fee: \$$damageFee).");
 
+            $conn->commit();
+
             return [
                 'success' => true,
                 'late_hours' => $lateHours,
@@ -1157,9 +1204,10 @@ class RentalService {
                 'damage_fee' => $damageFee,
                 'message' => "Vehicle return recorded. Additional charges assessed: Late: \$$lateFee, Fuel: \$$fuelFee, Damage: \$$damageFee."
             ];
+        } catch (Throwable $e) {
+            $conn->rollback();
+            return ['success' => false, 'message' => 'Failed to record return: ' . $e->getMessage()];
         }
-
-        return ['success' => false, 'message' => 'Failed to record return.'];
     }
 
     /**
@@ -1208,24 +1256,31 @@ class RentalService {
             ];
         }
 
-        // Refund any remaining held deposit
-        if ($fin['deposit_held'] > 0 && $depositAction === 'refund') {
-            $ref = $depositRefundRef ?: 'DEP-REF-' . strtoupper(substr(uniqid(), -6));
-            $refRes = self::refundDeposit($conn, $orderId, $fin['deposit_held'], $depositRefundMethod, $ref, $staffId, "Deposit refunded upon completion.");
-            if (!$refRes['success']) {
-                return ['success' => false, 'message' => "Failed to refund deposit: " . $refRes['message']];
+        $conn->begin_transaction();
+        try {
+            // Refund any remaining held deposit
+            if ($fin['deposit_held'] > 0 && $depositAction === 'refund') {
+                $ref = $depositRefundRef ?: 'DEP-REF-' . strtoupper(substr(uniqid(), -6));
+                $refRes = self::refundDeposit($conn, $orderId, $fin['deposit_held'], $depositRefundMethod, $ref, $staffId, "Deposit refunded upon completion.");
+                if (!$refRes['success']) {
+                    $conn->rollback();
+                    return ['success' => false, 'message' => "Failed to refund deposit: " . $refRes['message']];
+                }
             }
-        }
 
-        $upd = $conn->prepare("UPDATE orders SET status = 'Completed' WHERE id = ?");
-        $upd->bind_param("i", $orderId);
-        if ($upd->execute()) {
+            $upd = $conn->prepare("UPDATE orders SET status = 'Completed' WHERE id = ?");
+            $upd->bind_param("i", $orderId);
+            $upd->execute();
+
             self::recalculateOrderFinancials($conn, $orderId, $staffId);
             self::logFinancialAudit($conn, $orderId, $staffId, 'RENTAL_COMPLETED', 0.00, $notes ?: "Rental #{$order['booking_ref']} completed and finalized.");
+            
+            $conn->commit();
             return ['success' => true, 'message' => "Rental #{$order['booking_ref']} completed successfully."];
+        } catch (Throwable $e) {
+            $conn->rollback();
+            return ['success' => false, 'message' => 'Failed to complete rental: ' . $e->getMessage()];
         }
-
-        return ['success' => false, 'message' => 'Failed to complete rental.'];
     }
 
     /**
@@ -1288,8 +1343,18 @@ class RentalService {
      * Generate comprehensive financial and operational report.
      * Strictly separates deposits from earned revenue and avoids double counting.
      */
-    public static function getFinancialReport(mysqli $conn, array $filters = []): array {
+    public static function getFinancialReport(mysqli $conn, $filters = [], ?string $legacyEndDate = null): array {
         self::expireStaleBookings($conn);
+
+        if (is_string($filters)) {
+            $filters = [
+                'start_date' => $filters,
+                'end_date' => $legacyEndDate ?: date('Y-m-d'),
+                'preset' => 'custom'
+            ];
+        } elseif (!is_array($filters)) {
+            $filters = [];
+        }
 
         // Date range filtering
         $preset = $filters['preset'] ?? '30d';
@@ -1834,6 +1899,32 @@ class RentalService {
             return ['success' => true, 'id' => $conn->insert_id, 'duplicate' => false];
         }
         return ['success' => false, 'message' => 'Failed to create notification: ' . $stmt->error];
+    }
+
+    /**
+     * Retry delivery for an existing notification.
+     */
+    public static function retryNotificationDelivery(mysqli $conn, int $notificationId): array {
+        $stmt = $conn->prepare("SELECT * FROM notifications WHERE id = ?");
+        $stmt->bind_param("i", $notificationId);
+        $stmt->execute();
+        $notif = $stmt->get_result()->fetch_assoc();
+        if (!$notif) {
+            return ['success' => false, 'message' => 'Notification not found.'];
+        }
+
+        // Simulate delivery dispatch for configured channel
+        $now = date('Y-m-d H:i:s');
+        $upd = $conn->prepare("UPDATE notifications SET status = 'unread' WHERE id = ?");
+        $upd->bind_param("i", $notificationId);
+        $upd->execute();
+
+        return [
+            'success' => true,
+            'notification_id' => $notificationId,
+            'channel' => $notif['channel'],
+            'message' => "Notification #$notificationId retry processed successfully via channel: {$notif['channel']}."
+        ];
     }
 
     /**

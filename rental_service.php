@@ -118,6 +118,33 @@ class RentalService {
     }
 
     /**
+     * Purge expired password reset tokens older than given hours (default 24 hours).
+     */
+    public static function purgeExpiredPasswordResets(mysqli $conn, int $hours = 24): int {
+        $stmt = $conn->prepare("DELETE FROM password_resets WHERE created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)");
+        $stmt->bind_param("i", $hours);
+        $stmt->execute();
+        return $stmt->affected_rows;
+    }
+
+    /**
+     * Purge old read/archived notifications older than given days (default 90 days).
+     */
+    public static function purgeOldNotifications(mysqli $conn, int $days = 90): int {
+        $stmt = $conn->prepare("
+            DELETE FROM notifications 
+            WHERE status IN ('read', 'archived') 
+              AND (
+                (read_at IS NOT NULL AND read_at < DATE_SUB(NOW(), INTERVAL ? DAY))
+                OR (read_at IS NULL AND created_at < DATE_SUB(NOW(), INTERVAL ? DAY))
+              )
+        ");
+        $stmt->bind_param("ii", $days, $days);
+        $stmt->execute();
+        return $stmt->affected_rows;
+    }
+
+    /**
      * Generate a unique, collision-free human-readable booking reference (e.g., RNT-20261016-A1B2).
      */
     public static function generateBookingRef(mysqli $conn): string {

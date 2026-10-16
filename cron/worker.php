@@ -26,4 +26,10 @@ if ($action === 'reminders' || $action === 'all') {
     echo "$logPrefix Dispatched reminders: {$reminders['pickups']} upcoming pickups, {$reminders['returns']} returns due, {$reminders['overdue']} overdue alerts.\n";
 }
 
+if ($action === 'cleanup' || $action === 'all') {
+    $purgedResets = RentalService::purgeExpiredPasswordResets($conn, 24);
+    $purgedNotifs = RentalService::purgeOldNotifications($conn, 90);
+    echo "$logPrefix Maintenance cleanup: Purged $purgedResets expired reset token(s), $purgedNotifs old read notification(s).\n";
+}
+
 echo "$logPrefix Worker completed successfully.\n";

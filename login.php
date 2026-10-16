@@ -73,9 +73,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <label><b>Username</b></label>
                         <input type="text" name="username" class="form-control" placeholder="Enter name" required>
                     </div>
-                    <div class="form-group mb-3">
+                    <div class="form-group mb-2">
                         <label><b>Password</b></label>
                         <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+                    </div>
+                    <div class="text-end mb-3">
+                        <a href="forgot_password.php" class="text-muted small text-decoration-none">Forgot password?</a>
                     </div>
                     <div class="d-grid mb-3">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -85,7 +88,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     </div>
                     <div class="text-center">
                         <p class="auth-switch">Don't have an account? <a href="signin.php">Sign up</a></p>
-            
                     </div>
                 </form>
             </div>

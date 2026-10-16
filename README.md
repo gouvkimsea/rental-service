@@ -66,9 +66,13 @@ A web-based vehicle and equipment rental management platform built with PHP and 
 
 ## Automated Test Suites
 
-RentalKH includes an automated test harness covering business rules, pricing, operational RBAC, and end-to-end production scenarios:
+RentalKH includes an automated test harness covering business rules, pricing, operational RBAC, financial ledger, and end-to-end production scenarios:
 
 ```bash
+# Run all automated test suites at once with summary report
+php tests/run_all_tests.php
+
+# Or run individual test suites:
 # 1. Complete End-to-End Production Verification (15 Scenarios)
 php tests/production_e2e_tests.php
 

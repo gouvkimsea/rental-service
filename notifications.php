@@ -94,37 +94,37 @@ function get_notif_type_meta($type) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notification Center - RentalKH</title>
+    <title>Notification Center — JOUL Rental</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .notif-container { max-width: 960px; margin: 0 auto; padding: 24px; }
+        .notif-container { max-width: 960px; margin: 24px auto; padding: 0 20px 40px; }
+        .staff-notif-wrap { padding: 24px; }
         .notif-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
-        .notif-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin-bottom: 12px; display: flex; gap: 16px; align-items: flex-start; transition: all 0.15s ease; position: relative; }
+        .notif-card { background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 16px 20px; margin-bottom: 12px; display: flex; gap: 16px; align-items: flex-start; transition: all 0.15s ease; position: relative; }
         .notif-card:hover { border-color: #cbd5e1; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
         .notif-card.unread { border-left: 4px solid #2563eb; background: #fafcff; }
-        .notif-icon-box { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+        .notif-icon-box { width: 44px; height: 44px; border-radius: var(--radius-sm, 6px); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
         .notif-content { flex: 1; }
         .notif-title-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; flex-wrap: wrap; gap: 8px; }
-        .notif-title { font-weight: 700; font-size: 15px; color: #1e293b; margin: 0; }
+        .notif-title { font-weight: 700; font-size: 15px; color: var(--color-text, #1e293b); margin: 0; }
         .notif-time { font-size: 12px; color: #64748b; }
         .notif-message { font-size: 13px; color: #475569; line-height: 1.5; margin: 0 0 8px 0; }
-        .notif-footer { display: flex; align-items: center; gap: 12px; font-size: 12px; }
-        .filter-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; text-decoration: none; background: #f1f5f9; color: #475569; }
-        .filter-tab.active { background: #1e293b; color: #fff; }
-        .badge-count { background: #e53e3e; color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
-        .btn-sm-action { background: #f8fafc; border: 1px solid #cbd5e1; color: #334155; padding: 4px 10px; border-radius: 5px; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+        .notif-footer { display: flex; align-items: center; gap: 12px; font-size: 12px; flex-wrap: wrap; }
+        .filter-tab { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius-sm, 4px); font-size: 13px; font-weight: 600; text-decoration: none; background: #f1f5f9; color: #475569; border: 1px solid var(--color-border, #e2e8f0); }
+        .filter-tab.active { background: var(--color-primary, #1e293b); color: #fff; border-color: var(--color-primary, #1e293b); }
+        .btn-sm-action { background: #f8fafc; border: 1px solid #cbd5e1; color: #334155; padding: 4px 10px; border-radius: var(--radius-sm, 4px); font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
         .btn-sm-action:hover { background: #e2e8f0; }
-        .btn-trigger { background: #0284c7; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-trigger { background: #0284c7; color: #fff; border: none; padding: 8px 14px; border-radius: var(--radius-sm, 4px); font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
         .btn-trigger:hover { background: #0369a1; }
     </style>
 </head>
 <body>
 
 <?php if ($is_staff): ?>
-<div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
+<div class="app-shell">
     <!-- Sidebar -->
     <aside class="app-sidebar">
-        <a class="logo" href="Service.php">Joul Rental</a>
+        <a class="logo" href="Service.php">JOUL RENTAL</a>
         <nav class="side-nav">
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <?php if (RentalService::checkPermission($conn, $user_id, 'manage_vehicles')): ?>
@@ -165,7 +165,7 @@ function get_notif_type_meta($type) {
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="notifications.php" class="logo"><h1>Notifications & Operational Alerts</h1></a>
+                <h1>Notifications & Operational Alerts</h1>
                 <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($user_role)) ?></strong></p>
             </div>
             <div class="topbar-actions">
@@ -176,25 +176,31 @@ function get_notif_type_meta($type) {
                 </form>
             </div>
         </header>
+
+        <div class="staff-notif-wrap">
 <?php else: ?>
     <!-- Customer Header -->
-    <header class="site-header" style="background:#fff; border-bottom:1px solid #e2e8f0; padding:12px 24px;">
-        <a class="logo" href="Service.php">Joul Rental</a>
-        <nav class="site-nav">
-            <a href="Service.php#catalog">Catalog</a>
-            <a href="user_orders.php">My Bookings</a>
-            <a href="notifications.php" style="font-weight:bold; color:#0284c7;">
-                Notifications <?php if ($unreadCount > 0): ?><span class="badge-count"><?= $unreadCount ?></span><?php endif; ?>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="Service.php">
+                <span class="brand-badge">PRO</span>
+                JOUL RENTAL
             </a>
-            <a href="profile.php">Profile</a>
-        </nav>
-        <div class="action-bar">
-            <a href="logout.php"><button class="cart-button" type="button" style="background:#fef2f2; color:#dc2626; border:1px solid #fecaca;">Logout</button></a>
+            <nav class="site-nav">
+                <a href="Service.php">Home</a>
+                <a href="second1.php">Vehicles</a>
+                <a href="user_orders.php">My Bookings</a>
+                <a href="profile.php">Profile</a>
+                <a href="notifications.php" class="active">
+                    Notifications <?php if ($unreadCount > 0): ?><span class="badge-count"><?= $unreadCount ?></span><?php endif; ?>
+                </a>
+                <a href="logout.php">Logout</a>
+            </nav>
         </div>
     </header>
-<?php endif; ?>
 
-        <div class="notif-container">
+    <div class="notif-container">
+<?php endif; ?>
             <?php if ($message): ?>
                 <div class="alert alert-success" style="background:#dcfce7; color:#166534; padding:12px 16px; border-radius:6px; margin-bottom:16px;">
                     <?= htmlspecialchars($message) ?>

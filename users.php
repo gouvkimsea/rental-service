@@ -100,26 +100,14 @@ $result = $conn->query($query);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Customer & Staff Roles Management — RentalKH</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer & Staff Role Governance — JOUL Rental</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        .badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-        .badge-active { background: #dfe7d8; color: #2d5a27; }
-        .badge-disabled { background: #fde8e8; color: #9b1c1c; }
-        .badge-admin { background: #e0e7ff; color: #3730a3; }
-        .badge-rental_manager { background: #dcfce7; color: #166534; }
-        .badge-finance_staff { background: #fef3c7; color: #92400e; }
-        .badge-customer { background: #f1f5f9; color: #475569; }
-        .status-pill--active { background: #e0f2fe; color: #0284c7; }
-        .status-pill--completed { background: #dcfce7; color: #166534; }
-        .status-pill--expired { background: #f3f4f6; color: #6b7280; }
-        .status-pill--cancelled { background: #fee2e2; color: #b91c1c; }
-    </style>
 </head>
 <body>
-<div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
+<div class="app-shell">
     <aside class="app-sidebar">
-        <a class="logo" href="Service.php">Joul Rental</a>
+        <a class="logo" href="Service.php">JOUL RENTAL</a>
         <nav class="side-nav">
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_vehicles')): ?>
@@ -142,7 +130,7 @@ $result = $conn->query($query);
             <a href="notifications.php">
                 <span class="dot"></span>Notifications
                 <?php if ($unread_sidebar_count > 0): ?>
-                    <span style="background:#e53e3e; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 6px; margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                    <span class="badge-count" style="margin-left:auto;"><?= $unread_sidebar_count ?></span>
                 <?php endif; ?>
             </a>
         </nav>
@@ -158,23 +146,23 @@ $result = $conn->query($query);
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="users.php" class="logo"><h1>Customer & Staff Role Management</h1></a>
+                <h1>Customer & Staff Role Governance</h1>
                 <p class="subtitle"><?= date('l, F j, Y') ?> &bull; Logged in as: <strong><?= ucfirst(str_replace('_', ' ', $currentUserRole)) ?></strong></p>
             </div>
             <div class="topbar-actions">
                 <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
-                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span style="background:#e53e3e; color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; font-weight:700;"><?= $unread_sidebar_count ?></span><?php endif; ?>
+                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span class="badge-count"><?= $unread_sidebar_count ?></span><?php endif; ?>
                 </a>
             </div>
         </header>
 
         <?php if ($message): ?>
-            <div class="alert alert-success" style="margin: 20px; padding: 12px; background: #dfe7d8; border-radius: 6px; color:#166534;">
+            <div class="alert alert-success" style="margin: 20px 20px 0; padding: 12px 16px; border-radius: 6px;">
                 <?= htmlspecialchars($message) ?>
             </div>
         <?php endif; ?>
         <?php if ($error): ?>
-            <div class="alert alert-danger" style="margin: 20px; padding: 12px; background: #fee2e2; border-radius: 6px; color: #b91c1c;">
+            <div class="alert alert-danger" style="margin: 20px 20px 0; padding: 12px 16px; border-radius: 6px;">
                 <?= htmlspecialchars($error) ?>
             </div>
         <?php endif; ?>
@@ -198,6 +186,7 @@ $result = $conn->query($query);
                 </div>
 
                 <h3 style="margin-top:20px; font-size:16px;">Rental History for <?= htmlspecialchars($selectedCustomer['name']) ?></h3>
+                <div class="table-wrap">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -232,6 +221,7 @@ $result = $conn->query($query);
                     <?php endif; ?>
                     </tbody>
                 </table>
+                </div>
             </section>
         <?php endif; ?>
 
@@ -240,6 +230,7 @@ $result = $conn->query($query);
                 <h2>All Registered Users & Staff Roles</h2>
                 <span style="font-size:12px; color:#64748b;">Roles: Super Admin, Rental Manager, Finance Staff, Customer</span>
             </div>
+            <div class="table-wrap">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -318,6 +309,7 @@ $result = $conn->query($query);
                 <?php endwhile; ?>
                 </tbody>
             </table>
+            </div>
         </section>
     </div>
 </div>

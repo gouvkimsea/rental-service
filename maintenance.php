@@ -127,26 +127,22 @@ $flaggedCount = (int)$conn->query("SELECT COUNT(*) as cnt FROM vehicle_maintenan
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vehicle Maintenance & Fleet Health — RentalKH</title>
+    <title>Fleet Maintenance & Inspection — JOUL Rental</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .badge { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .badge-scheduled { background: #fef3c7; color: #92400e; }
-        .badge-in_progress { background: #fee2e2; color: #991b1b; }
-        .badge-completed { background: #dcfce7; color: #166534; }
-        .badge-passed { background: #dcfce7; color: #166534; }
-        .badge-passed_with_notes { background: #fef3c7; color: #b45309; }
-        .badge-failed { background: #fee2e2; color: #b91c1c; }
-        .badge-conflict { background: #fee2e2; color: #dc2626; border: 1px solid #f87171; }
-        .conflict-box { background: #fff5f5; border: 1.5px solid #f87171; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
-        .modal-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin-top: 10px; }
+        .conflict-box { background: #fff5f5; border: 1.5px solid #f87171; border-radius: var(--radius-md, 8px); padding: 16px; margin-bottom: 20px; }
+        .modal-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: var(--radius-sm, 6px); padding: 12px; margin-top: 10px; }
+        .maintenance-layout { display: grid; grid-template-columns: 380px 1fr; gap: 24px; margin: 20px; }
+        @media (max-width: 900px) {
+            .maintenance-layout { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-<div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
+<div class="app-shell">
     <!-- Sidebar -->
     <aside class="app-sidebar">
-        <a class="logo" href="Service.php">Joul Rental</a>
+        <a class="logo" href="Service.php">JOUL RENTAL</a>
         <nav class="side-nav">
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <?php if (RentalService::checkPermission($conn, $staffId, 'manage_vehicles')): ?>
@@ -169,7 +165,7 @@ $flaggedCount = (int)$conn->query("SELECT COUNT(*) as cnt FROM vehicle_maintenan
             <a href="notifications.php">
                 <span class="dot"></span>Notifications
                 <?php if ($unread_sidebar_count > 0): ?>
-                    <span style="background:#e53e3e; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 6px; margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                    <span class="badge-count" style="margin-left:auto;"><?= $unread_sidebar_count ?></span>
                 <?php endif; ?>
             </a>
         </nav>
@@ -185,14 +181,14 @@ $flaggedCount = (int)$conn->query("SELECT COUNT(*) as cnt FROM vehicle_maintenan
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="maintenance.php" class="logo"><h1>Fleet Maintenance & Inspection Operations</h1></a>
+                <h1>Fleet Maintenance & Inspection Operations</h1>
                 <p class="subtitle"><?= date('l, F j, Y') ?> &bull; Operational Integrity & Safety Control &bull; Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
             </div>
             <div class="topbar-actions" style="display:flex; gap:10px; align-items:center;">
                 <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
-                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span style="background:#e53e3e; color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; font-weight:700;"><?= $unread_sidebar_count ?></span><?php endif; ?>
+                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span class="badge-count"><?= $unread_sidebar_count ?></span><?php endif; ?>
                 </a>
-                <a href="Product.php" class="submit-btn" style="text-decoration:none; padding:8px 14px; background:#64748b;">&larr; Back to Fleet</a>
+                <a href="Product.php" class="btn-op btn-primary" style="background:#64748b; text-decoration:none; padding:8px 14px;">&larr; Back to Fleet</a>
             </div>
         </header>
 
@@ -263,7 +259,7 @@ $flaggedCount = (int)$conn->query("SELECT COUNT(*) as cnt FROM vehicle_maintenan
             </div>
         <?php endif; ?>
 
-        <div style="display: grid; grid-template-columns: 380px 1fr; gap: 24px; margin: 20px;">
+        <div class="maintenance-layout">
             <!-- Schedule Maintenance Form -->
             <section class="panel" style="padding: 20px;">
                 <h3 style="margin-top:0; font-size:16px;">Schedule Maintenance Event</h3>
@@ -355,7 +351,8 @@ $flaggedCount = (int)$conn->query("SELECT COUNT(*) as cnt FROM vehicle_maintenan
                     <?php endif; ?>
                 </div>
 
-                <table class="admin-table" style="width:100%; font-size:13px;">
+                <div class="table-wrap">
+                <table class="data-table">
                     <thead>
                         <tr>
                             <th>Vehicle</th>
@@ -465,6 +462,7 @@ $flaggedCount = (int)$conn->query("SELECT COUNT(*) as cnt FROM vehicle_maintenan
                     <?php endif; ?>
                     </tbody>
                 </table>
+                </div>
             </section>
         </div>
     </div>

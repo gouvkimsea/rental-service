@@ -18,6 +18,7 @@ $can_manage_bookings = RentalService::checkPermission($conn, $user_id, 'manage_b
 $can_manage_handover = RentalService::checkPermission($conn, $user_id, 'manage_handover_return');
 $can_manage_payments = RentalService::checkPermission($conn, $user_id, 'manage_payments');
 $can_manage_refunds = RentalService::checkPermission($conn, $user_id, 'manage_refunds');
+$unread_sidebar_count = RentalService::getUnreadNotificationCount($conn, $user_id, $user_role);
 
 $msg = '';
 $error = '';
@@ -356,62 +357,133 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Booking Operations #<?= htmlspecialchars($order['booking_ref'] ?: $order['id']) ?></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking <?= htmlspecialchars($order['booking_ref'] ?: '#' . $order['id']) ?> — JOUL Rental</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .detail-container { max-width: 1000px; margin: 30px auto; padding: 25px; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
-        .info-box { background: #f8fafc; padding: 18px; border-radius: 6px; border: 1px solid #e2e8f0; }
-        .lifecycle-step { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 6px; background: #f1f5f9; margin-bottom: 10px; }
-        .lifecycle-step.completed { background: #dcfce7; color: #166534; }
-        .lifecycle-step.active { background: #e0f2fe; color: #0284c7; font-weight: bold; border-left: 4px solid #0284c7; }
-        .table-custom { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        .table-custom th, .table-custom td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
-        .table-custom th { background: #f1f5f9; font-size: 12px; text-transform: uppercase; color: #475569; }
-        .badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-        .badge-verified { background: #dcfce7; color: #166534; }
-        .badge-pending { background: #fef08a; color: #854d0e; }
-        .badge-refunded { background: #e0e7ff; color: #4338ca; }
-        .btn-op { padding: 7px 14px; border-radius: 4px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .order-detail-wrap { max-width: 1100px; margin: 24px auto; padding: 0 20px 40px; }
+        .staff-content-wrap { padding: 24px; }
+        .detail-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 24px; }
+        .info-box { background: var(--color-surface, #fff); padding: 20px; border-radius: var(--radius-md, 8px); border: 1px solid var(--color-border, #e2e8f0); }
+        .lifecycle-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; font-size: 12px; }
+        .lifecycle-step { padding: 12px 14px; border-radius: var(--radius-sm, 4px); background: #f8fafc; border: 1px solid var(--color-border, #e2e8f0); line-height: 1.4; }
+        .lifecycle-step.completed { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+        .lifecycle-step.active { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; border-left: 4px solid #2563eb; }
+        .btn-op { padding: 7px 14px; border-radius: var(--radius-sm, 4px); border: none; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease; }
         .btn-primary { background: #0284c7; color: #fff; }
-        .btn-success { background: #16a34a; color: #fff; }
+        .btn-primary:hover { background: #0369a1; }
+        .btn-success { background: #166534; color: #fff; }
+        .btn-success:hover { background: #14532d; }
         .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
     </style>
 </head>
 <body>
-<div class="detail-container">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-        <div>
-            <h2 style="margin:0 0 4px 0;">Booking <?= htmlspecialchars($order['booking_ref'] ?: '#' . $order['id']) ?></h2>
-            <div style="font-size: 13px; color: #64748b;">
-                Placed on <?= date('F j, Y, g:i A', strtotime($order['order_date'])) ?> | Customer: <strong><?= htmlspecialchars($order['customer_name']) ?></strong>
+
+<?php if ($is_staff): ?>
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <a class="logo" href="Service.php">JOUL RENTAL</a>
+        <nav class="side-nav">
+            <a href="dashboard.php"><span class="dot"></span>Overview</a>
+            <?php if (RentalService::checkPermission($conn, $user_id, 'manage_vehicles')): ?>
+                <a href="Product.php"><span class="dot"></span>Products</a>
+                <a href="product_edit.php"><span class="dot"></span>Product Management</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $user_id, 'manage_maintenance')): ?>
+                <a href="maintenance.php"><span class="dot"></span>Maintenance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $user_id, 'manage_categories')): ?>
+                <a href="categories.php"><span class="dot"></span>Categories</a>
+            <?php endif; ?>
+            <a class="active" href="orders.php"><span class="dot"></span>Orders</a>
+            <?php if (RentalService::checkPermission($conn, $user_id, 'view_finance_reports')): ?>
+                <a href="finance.php"><span class="dot"></span>Finance</a>
+            <?php endif; ?>
+            <?php if (RentalService::checkPermission($conn, $user_id, 'manage_customers') || RentalService::checkPermission($conn, $user_id, 'manage_staff_roles')): ?>
+                <a href="users.php"><span class="dot"></span>Users</a>
+            <?php endif; ?>
+            <a href="notifications.php">
+                <span class="dot"></span>Notifications
+                <?php if ($unread_sidebar_count > 0): ?>
+                    <span class="badge-count" style="margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                <?php endif; ?>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="profile-avatar"><?= strtoupper(substr($_SESSION['username'],0,2)) ?></div>
+            <div>
+                <p class="name"><?= htmlspecialchars($_SESSION['username']) ?></p>
+                <p class="role"><span style="text-transform: capitalize; font-size:11px; color:#64748b;"><?= htmlspecialchars($user_role) ?></span> | <a href="logout.php" style="color: #a72d25; text-decoration: none; font-weight: bold;">Logout</a></p>
             </div>
         </div>
-        <div style="display:flex; gap:10px; align-items:center;">
-            <span class="status-pill status-pill--<?= strtolower($order['status']) ?>" style="font-size:14px; padding:6px 14px;">
+    </aside>
+
+    <div class="app-main">
+        <header class="app-topbar">
+            <div>
+                <h1>Booking <?= htmlspecialchars($order['booking_ref'] ?: '#' . $order['id']) ?></h1>
+                <p class="subtitle">Operational Lifecycle & Financial Ledger • Role: <strong><?= htmlspecialchars(strtoupper($user_role)) ?></strong></p>
+            </div>
+            <div class="topbar-actions">
+                <a href="orders.php" class="btn-op btn-primary" style="background:#64748b;">&larr; Back to Orders</a>
+            </div>
+        </header>
+
+        <div class="staff-content-wrap">
+<?php else: ?>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="Service.php">
+                <span class="brand-badge">PRO</span>
+                JOUL RENTAL
+            </a>
+            <nav class="site-nav">
+                <a href="Service.php">Home</a>
+                <a href="second1.php">Vehicles</a>
+                <a href="user_orders.php" class="active">My Bookings</a>
+                <a href="profile.php">Profile</a>
+                <a href="notifications.php">Notifications</a>
+                <a href="logout.php">Logout</a>
+            </nav>
+        </div>
+    </header>
+    <main class="order-detail-wrap">
+<?php endif; ?>
+
+    <div class="detail-header">
+        <div>
+            <h2 style="margin:0 0 4px 0; font-size: 22px;">Reservation <?= htmlspecialchars($order['booking_ref'] ?: '#' . $order['id']) ?></h2>
+            <div style="font-size: 13px; color: #64748b;">
+                Placed on <?= date('F j, Y, g:i A', strtotime($order['order_date'])) ?> &bull; Customer: <strong><?= htmlspecialchars($order['customer_name']) ?></strong>
+            </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <span class="status-pill status-pill--<?= strtolower($order['status']) ?>" style="font-size:13px; padding:6px 14px;">
                 <?= htmlspecialchars($order['status']) ?>
             </span>
-            <span class="badge badge-<?= $fin['payment_status'] === 'paid' ? 'verified' : ($fin['payment_status'] === 'partially_paid' ? 'pending' : 'disabled') ?>">
+            <span class="badge badge-<?= $fin['payment_status'] === 'paid' ? 'available' : ($fin['payment_status'] === 'partially_paid' ? 'maintenance' : 'archived') ?>">
                 Payment: <?= ucfirst(str_replace('_', ' ', $fin['payment_status'])) ?>
             </span>
         </div>
     </div>
 
     <?php if ($msg): ?>
-        <div class="alert alert-success" style="margin-bottom: 20px; padding: 12px; background: #dfe7d8; border-radius: 6px; color:#2d5a27;">
+        <div class="alert alert-success" style="margin-bottom: 20px; padding: 12px 16px; border-radius: 6px;">
             <?= htmlspecialchars($msg) ?>
         </div>
     <?php endif; ?>
     <?php if ($error): ?>
-        <div class="alert alert-danger" style="margin-bottom: 20px; padding: 12px; background: #fee2e2; border-radius: 6px; color: #b91c1c;">
+        <div class="alert alert-danger" style="margin-bottom: 20px; padding: 12px 16px; border-radius: 6px;">
             <?= htmlspecialchars($error) ?>
         </div>
     <?php endif; ?>
 
     <!-- OPERATIONAL LIFECYCLE BAR -->
-    <section class="panel" style="margin-bottom: 25px; padding: 18px; border-left: 4px solid #0284c7;">
-        <h3 style="margin-top:0; font-size:16px;">Rental Lifecycle & Operations Progress</h3>
-        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; font-size: 12px;">
+    <section class="panel" style="margin-bottom: 24px; padding: 18px;">
+        <h3 style="margin-top:0; font-size:15px; margin-bottom:12px;">Rental Lifecycle & Schedule Progress</h3>
+        <div class="lifecycle-grid">
             <div class="lifecycle-step completed">
                 <strong>1. Booking Placed</strong><br>Ref: <?= htmlspecialchars($order['booking_ref']) ?>
             </div>
@@ -617,7 +689,8 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
         </div>
 
         <!-- Payments Table -->
-        <table class="table-custom">
+        <div class="table-wrap">
+        <table class="data-table">
             <thead>
                 <tr>
                     <th>Date</th>
@@ -640,7 +713,7 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                         <td style="font-family:monospace;"><?= htmlspecialchars($p['payment_reference']) ?></td>
                         <td><strong>$<?= number_format($p['amount'], 2) ?></strong></td>
                         <td>
-                            <span class="badge badge-<?= $p['status'] ?>">
+                            <span class="badge badge-<?= $p['status'] === 'verified' ? 'available' : 'maintenance' ?>">
                                 <?= ucfirst($p['status']) ?>
                             </span>
                         </td>
@@ -652,22 +725,23 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                                         <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                         <input type="hidden" name="operation" value="verify_payment_item">
                                         <input type="hidden" name="payment_id" value="<?= $p['id'] ?>">
-                                        <button type="submit" class="btn-op btn-success" style="padding:3px 8px; font-size:11px;" onclick="return confirm('Verify that payment has been received in bank or cash?');">
+                                        <button type="submit" class="btn-op btn-success" style="padding:4px 10px; font-size:11px;" onclick="return confirm('Verify that payment has been received in bank or cash?');">
                                             Verify
                                         </button>
                                     </form>
                                 <?php else: ?>
-                                    <span style="color:#666; font-size:11px;">Verified</span>
+                                    <span style="color:#166534; font-size:11px; font-weight:600;">&check; Verified</span>
                                 <?php endif; ?>
                             </td>
                         <?php endif; ?>
                     </tr>
                 <?php endwhile; ?>
             <?php else: ?>
-                <tr><td colspan="<?= $can_manage_payments ? 8 : 7 ?>" style="text-align:center; color:#666; padding:15px;">No payments recorded for this booking yet.</td></tr>
+                <tr><td colspan="<?= $can_manage_payments ? 8 : 7 ?>" style="text-align:center; color:#666; padding:20px;">No payments recorded for this booking yet.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>
+        </div>
 
         <!-- Financial Controls (for authorized payments staff) -->
         <?php if ($can_manage_payments && !in_array($order['status'], ['Completed', 'Cancelled'])): ?>
@@ -749,7 +823,8 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
     <?php if ($is_staff && $auditLogs && $auditLogs->num_rows > 0): ?>
         <section class="panel" style="margin-bottom: 25px; padding: 20px;">
             <h3 style="margin-top:0;">Audit Trail & Security Logs</h3>
-            <table class="table-custom">
+            <div class="table-wrap">
+            <table class="data-table">
                 <thead>
                     <tr>
                         <th>Timestamp</th>
@@ -771,6 +846,7 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
                 <?php endwhile; ?>
                 </tbody>
             </table>
+            </div>
         </section>
     <?php endif; ?>
 
@@ -784,6 +860,13 @@ $fin = RentalService::recalculateOrderFinancials($conn, $order_id);
             <a href="user_orders.php" class="submit-btn" style="text-decoration:none; display:inline-block;">&larr; Back to My Bookings</a>
         <?php endif; ?>
     </div>
-</div>
+
+<?php if ($is_staff): ?>
+        </div><!-- /.staff-content-wrap -->
+    </div><!-- /.app-main -->
+</div><!-- /.app-shell -->
+<?php else: ?>
+    </main><!-- /.order-detail-wrap -->
+<?php endif; ?>
 </body>
 </html>

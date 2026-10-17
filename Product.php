@@ -52,25 +52,14 @@ $categories = $conn->query("SELECT id, name FROM categories ORDER BY name");
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vehicle Inventory - Operational Status</title>
+    <title>Vehicle Inventory &amp; Fleet Status - JOUL Rental</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        .badge { padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-        .badge-available { background: #dfe7d8; color: #2d5a27; }
-        .badge-rented { background: #e1effe; color: #1e429f; }
-        .badge-maintenance { background: #fef08a; color: #854d0e; }
-        .badge-inactive { background: #fde8e8; color: #9b1c1c; }
-        .badge-cond-excellent { background: #dcfce7; color: #166534; }
-        .badge-cond-good { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
-        .badge-cond-fair { background: #fef9c3; color: #854d0e; }
-        .badge-cond-needs_service { background: #fee2e2; color: #b91c1c; }
-        .badge-count { background: #e53e3e; color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
-    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
 <div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
     <aside class="app-sidebar">
-        <a class="logo" href="Service.php">Joul Rental</a>
+        <a class="logo" href="Service.php">JOUL Rental</a>
         <nav class="side-nav">
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <a class="active" href="Product.php"><span class="dot"></span>Products</a>
@@ -109,14 +98,14 @@ $categories = $conn->query("SELECT id, name FROM categories ORDER BY name");
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="Product.php" class="logo"><h1>Vehicle Inventory & Fleet Status</h1></a>
-                <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
+                <h1 style="margin:0; font-size:22px; font-weight:800; color:var(--color-forest);">Vehicle Inventory &amp; Fleet Status</h1>
+                <p class="subtitle" style="margin-top:2px; font-size:13px; color:#64748b;"><?= date('l, F j, Y') ?> &bull; Active Role: <strong><?= htmlspecialchars(strtoupper(str_replace('_', ' ', $currentUserRole))) ?></strong></p>
             </div>
             <div class="topbar-actions" style="display:flex; align-items:center; gap:10px;">
                 <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
                     🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span class="badge-count"><?= $unread_sidebar_count ?></span><?php endif; ?>
                 </a>
-                <a href="product_edit.php" class="submit-btn" style="text-decoration:none; display:inline-block; padding: 10px 18px;">+ Add New Vehicle</a>
+                <a href="product_edit.php" class="primary-link" style="text-decoration:none; padding: 8px 16px; font-size:13px;">+ Add New Vehicle</a>
             </div>
         </header>
 

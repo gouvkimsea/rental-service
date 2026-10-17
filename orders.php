@@ -104,29 +104,32 @@ $maintConflictsCount = (int)$conn->query("
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Booking Management - Operational Dispatch</title>
+    <title>Booking Operations & Dispatch — JOUL Rental</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .status-pill--active { background: #e0f2fe; color: #0284c7; }
-        .status-pill--completed { background: #dcfce7; color: #166534; }
-        .status-pill--expired { background: #f3f4f6; color: #6b7280; }
-        .status-pill--cancelled { background: #fee2e2; color: #b91c1c; }
-        .filter-chip { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border-radius: 20px; font-size: 13px; text-decoration: none; font-weight: 600; background: #f1f5f9; color: #334155; margin-right: 6px; margin-bottom: 6px; }
-        .filter-chip.active { background: #1e293b; color: #fff; }
-        .filter-chip--alert { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-        .filter-chip--alert.active { background: #dc2626; color: #fff; }
-        .filter-chip--info { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
-        .filter-chip--info.active { background: #2563eb; color: #fff; }
-        .btn-action { padding: 4px 10px; border-radius: 4px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+        .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 20px 0; }
+        .filter-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: var(--radius-sm, 4px); font-size: 13px; text-decoration: none; font-weight: 500; background: var(--color-surface, #fff); color: var(--color-text, #1e293b); border: 1px solid var(--color-border, #e2e8f0); transition: all 0.15s ease; }
+        .filter-chip:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .filter-chip.active { background: var(--color-primary, #1e293b); color: #fff; border-color: var(--color-primary, #1e293b); font-weight: 600; }
+        .filter-chip--alert { background: #fff5f5; color: #b91c1c; border-color: #fecaca; }
+        .filter-chip--alert.active { background: #dc2626; color: #fff; border-color: #dc2626; }
+        .filter-chip--info { background: #f0f9ff; color: #0284c7; border-color: #bae6fd; }
+        .filter-chip--info.active { background: #0284c7; color: #fff; border-color: #0284c7; }
+        .btn-action { padding: 4px 10px; border-radius: var(--radius-sm, 4px); border: 1px solid transparent; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease; }
         .btn-activate { background: #0284c7; color: #fff; }
+        .btn-activate:hover { background: #0369a1; }
         .btn-complete { background: #16a34a; color: #fff; }
-        .badge-count { background: #e53e3e; color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
+        .btn-complete:hover { background: #15803d; }
+        .btn-decline { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
+        .btn-decline:hover { background: #fecaca; }
+        .btn-approve { background: #dcfce7; color: #166534; border-color: #86efac; }
+        .btn-approve:hover { background: #bbf7d0; }
     </style>
 </head>
 <body>
-<div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
+<div class="app-shell">
     <aside class="app-sidebar">
-        <a class="logo" href="Service.php">Joul Rental</a>
+        <a class="logo" href="Service.php">JOUL RENTAL</a>
         <nav class="side-nav">
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_vehicles')): ?>
@@ -165,7 +168,7 @@ $maintConflictsCount = (int)$conn->query("
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="orders.php" class="logo"><h1>Booking Operations & Dispatch</h1></a>
+                <h1>Booking Operations & Dispatch</h1>
                 <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
             </div>
             <div class="topbar-actions">
@@ -177,27 +180,27 @@ $maintConflictsCount = (int)$conn->query("
 
         <!-- Flash message -->
         <?php if ($message): ?>
-            <div class="alert alert-success" style="margin: 20px; padding: 12px; background: #dfe7d8; border-radius: 6px;">
+            <div class="alert alert-success" style="margin: 20px 20px 0; padding: 12px 16px; border-radius: 6px;">
                 <?= htmlspecialchars($message) ?>
             </div>
         <?php endif; ?>
 
         <!-- Operational and Lifecycle Filters -->
-        <div style="margin: 20px 20px 0 20px; display: flex; flex-wrap: wrap;">
+        <div class="filter-bar">
             <a href="orders.php?status=all" class="filter-chip <?= $statusFilter === 'all' ? 'active' : '' ?>">
                 All (<?= array_sum($counts) ?>)
             </a>
             <a href="orders.php?status=upcoming_pickups" class="filter-chip filter-chip--info <?= $statusFilter === 'upcoming_pickups' ? 'active' : '' ?>">
-                🚗 Upcoming Pickups 24h (<?= $upcomingPickupsCount ?>)
+                Upcoming Pickups 24h (<?= $upcomingPickupsCount ?>)
             </a>
             <a href="orders.php?status=Active" class="filter-chip <?= $statusFilter === 'Active' ? 'active' : '' ?>">
-                🛣️ Active Rentals (<?= $counts['Active'] ?>)
+                Active Rentals (<?= $counts['Active'] ?>)
             </a>
             <a href="orders.php?status=overdue_returns" class="filter-chip <?= $overdueReturnsCount > 0 ? 'filter-chip--alert' : '' ?> <?= $statusFilter === 'overdue_returns' ? 'active' : '' ?>">
-                ⚠️ Overdue Returns (<?= $overdueReturnsCount ?>)
+                Overdue Returns (<?= $overdueReturnsCount ?>)
             </a>
             <a href="orders.php?status=maint_conflict" class="filter-chip <?= $maintConflictsCount > 0 ? 'filter-chip--alert' : '' ?> <?= $statusFilter === 'maint_conflict' ? 'active' : '' ?>">
-                🚨 Maint. Conflicts (<?= $maintConflictsCount ?>)
+                Maintenance Conflicts (<?= $maintConflictsCount ?>)
             </a>
             <a href="orders.php?status=Pending" class="filter-chip <?= $statusFilter === 'Pending' ? 'active' : '' ?>">
                 Pending Approval (<?= $counts['Pending'] ?>)
@@ -218,6 +221,7 @@ $maintConflictsCount = (int)$conn->query("
 
         <section class="panel" style="margin: 20px;">
             <div class="panel-head"><h2>Rental Bookings</h2></div>
+            <div class="table-wrap">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -314,6 +318,7 @@ $maintConflictsCount = (int)$conn->query("
                 <?php endif; ?>
                 </tbody>
             </table>
+            </div>
         </section>
     </div>
 </div>

@@ -137,17 +137,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title><?= $is_edit ? 'Edit' : 'Add' ?> Vehicle</title>
+    <title><?= $is_edit ? 'Edit' : 'Add' ?> Vehicle — JOUL Rental</title>
     <link rel="stylesheet" href="style.css">
     <style>
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .form-full { grid-column: span 2; }
+        @media (max-width: 768px) {
+            .form-grid { grid-template-columns: 1fr; }
+            .form-full { grid-column: span 1; }
+        }
     </style>
 </head>
 <body>
-<div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
+<div class="app-shell">
     <aside class="app-sidebar">
-        <a class="logo" href="Service.php">Joul Rental</a> 
+        <a class="logo" href="Service.php">JOUL RENTAL</a> 
         <nav class="side-nav">
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <a href="Product.php"><span class="dot"></span>Products</a>
@@ -170,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <a href="notifications.php">
                 <span class="dot"></span>Notifications
                 <?php if ($unread_sidebar_count > 0): ?>
-                    <span style="background:#e53e3e; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 6px; margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                    <span class="badge-count" style="margin-left:auto;"><?= $unread_sidebar_count ?></span>
                 <?php endif; ?>
             </a>
         </nav> 
@@ -185,17 +189,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="product_edit.php" class="logo"><h1>Vehicle Inventory Management</h1></a>
-                <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
+                <h1><?= $is_edit ? 'Edit Vehicle: ' . htmlspecialchars($product['name']) : 'Register New Fleet Vehicle' ?></h1>
+                <p class="subtitle">Fleet Specifications & Availability Configuration • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
             </div>
             <div class="topbar-actions">
-                <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
-                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span style="background:#e53e3e; color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; font-weight:700;"><?= $unread_sidebar_count ?></span><?php endif; ?>
-                </a>
+                <a href="Product.php" class="btn-op btn-primary" style="background:#64748b; text-decoration:none; padding:8px 14px;">&larr; Back to Fleet</a>
             </div>
         </header>
-        <header class="app-topbar"><h2><?= $is_edit ? 'Edit' : 'Add New' ?> Vehicle</h2></header>
-        <main class="dashboard-body">
+
+        <main class="dashboard-body" style="padding: 20px;">
+            <div class="panel" style="padding: 24px; max-width: 900px;">
             <?php if (isset($error)): ?><div class="alert alert-danger" style="margin-bottom: 20px;"><?= htmlspecialchars($error) ?></div><?php endif; ?>
             <form method="post" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
@@ -314,6 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <a href="Product.php" style="margin-left:20px; text-decoration:none; color:#666;">Cancel</a>
                 </div>
             </form>
+            </div>
         </main>
     </div>
 </div>

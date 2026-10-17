@@ -154,22 +154,22 @@ if ($isCli && $format === 'cli') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Health - RentalKH</title>
+    <title>System Health Diagnostic — JOUL Rental</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #eef3f1; padding: 40px 16px; font-family: Inter, sans-serif; }
-        .health-card { max-width: 680px; margin: 0 auto; background: #fff; padding: 32px; border-radius: 12px; box-shadow: 0 10px 30px rgba(25,42,50,0.08); border: 1px solid var(--color-border, #cbd8d4); }
-        .badge-healthy { background: #174f45; color: #fff; padding: 6px 14px; border-radius: 20px; font-weight: 600; }
-        .badge-unhealthy { background: #a72d25; color: #fff; padding: 6px 14px; border-radius: 20px; font-weight: 600; }
-        .metric-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eef2f0; }
+        body { background: var(--color-bg, #f8fafc); padding: 40px 16px; font-family: Inter, sans-serif; }
+        .health-card { max-width: 680px; margin: 0 auto; background: #fff; padding: 32px; border-radius: var(--radius-md, 8px); box-shadow: 0 4px 12px rgba(15,23,42,0.06); border: 1px solid var(--color-border, #e2e8f0); }
+        .badge-healthy { background: #166534; color: #fff; padding: 6px 14px; border-radius: 4px; font-weight: 600; font-size: 12px; }
+        .badge-unhealthy { background: #b91c1c; color: #fff; padding: 6px 14px; border-radius: 4px; font-weight: 600; font-size: 12px; }
+        .metric-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
     </style>
 </head>
 <body>
     <div class="health-card">
         <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
             <div>
-                <h3 class="mb-0 fw-bold" style="color:var(--color-forest, #174f45);">RentalKH System Health</h3>
+                <h3 class="mb-0 fw-bold" style="color:var(--color-primary, #1e293b); font-size: 20px;">JOUL Rental System Health</h3>
                 <small class="text-muted">Probed at <?= htmlspecialchars($payload['timestamp']) ?> (<?= $totalDurationMs ?> ms)</small>
             </div>
             <span class="<?= $allHealthy ? 'badge-healthy' : 'badge-unhealthy' ?>">

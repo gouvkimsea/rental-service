@@ -324,10 +324,10 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
     </style>
 </head>
 <body>
-<div class="app-shell" style="grid-template-columns:240px minmax(0,1fr);">
+<div class="app-shell">
     <!-- Sidebar -->
     <aside class="app-sidebar">
-        <a class="logo" href="Service.php">Joul Rental</a>
+        <a class="logo" href="Service.php">JOUL RENTAL</a>
         <nav class="side-nav">
             <a href="dashboard.php"><span class="dot"></span>Overview</a>
             <?php if (RentalService::checkPermission($conn, $adminId, 'manage_vehicles')): ?>
@@ -350,7 +350,7 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
             <a href="notifications.php">
                 <span class="dot"></span>Notifications
                 <?php if ($unread_sidebar_count > 0): ?>
-                    <span style="background:#e53e3e; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 6px; margin-left:auto;"><?= $unread_sidebar_count ?></span>
+                    <span class="badge-count" style="margin-left:auto;"><?= $unread_sidebar_count ?></span>
                 <?php endif; ?>
             </a>
         </nav>
@@ -366,14 +366,14 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="finance.php" class="logo"><h1>Financial Operations & Ledger</h1></a>
+                <h1>Financial Operations & Ledger</h1>
                 <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
             </div>
             <div class="topbar-actions" style="display: flex; gap: 10px; align-items: center;">
                 <a href="notifications.php" style="text-decoration:none; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
-                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span style="background:#e53e3e; color:#fff; border-radius:10px; padding:1px 6px; font-size:11px; font-weight:700;"><?= $unread_sidebar_count ?></span><?php endif; ?>
+                    🔔 Notifications <?php if ($unread_sidebar_count > 0): ?><span class="badge-count"><?= $unread_sidebar_count ?></span><?php endif; ?>
                 </a>
-                <a href="finance.php?export=csv&preset=<?= urlencode($preset) ?>&start_date=<?= urlencode($startDate) ?>&end_date=<?= urlencode($endDate) ?>" class="primary-link" style="background: #234234; color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600;">
+                <a href="finance.php?export=csv&preset=<?= urlencode($preset) ?>&start_date=<?= urlencode($startDate) ?>&end_date=<?= urlencode($endDate) ?>" class="primary-link" style="background: var(--color-primary, #1e293b); color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600;">
                     Export CSV Ledger
                 </a>
             </div>
@@ -646,7 +646,8 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                         </div>
                     </div>
 
-                    <table class="admin-table" style="width: 100%; font-size: 13px;">
+                    <div class="table-wrap">
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
@@ -712,6 +713,7 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    </div>
                 </div>
 
             <!-- TAB 3: PENDING PAYMENTS AWAITING VERIFICATION -->
@@ -734,7 +736,8 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                     ");
                     ?>
 
-                    <table class="admin-table" style="width: 100%; font-size: 13px;">
+                    <div class="table-wrap">
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
@@ -784,6 +787,7 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    </div>
                 </div>
 
             <!-- TAB 4: OUTSTANDING RECEIVABLES -->
@@ -794,7 +798,8 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                         <p style="font-size: 13px; color: #64748b; margin-top: 4px;">Active and completed bookings where gross rental charges exceed customer payments received.</p>
                     </div>
 
-                    <table class="admin-table" style="width: 100%; font-size: 13px;">
+                    <div class="table-wrap">
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Booking Ref</th>
@@ -842,6 +847,7 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    </div>
                 </div>
 
             <!-- TAB 5: DEPOSIT ESCROW MANAGEMENT -->
@@ -852,7 +858,8 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                         <p style="font-size: 13px; color: #64748b; margin-top: 4px;">Security deposits held in escrow as protection against damages, late returns, or unpaid balances.</p>
                     </div>
 
-                    <table class="admin-table" style="width: 100%; font-size: 13px;">
+                    <div class="table-wrap">
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Booking Ref</th>
@@ -902,6 +909,7 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    </div>
                 </div>
 
             <!-- TAB 6: OPERATING EXPENSES -->
@@ -915,7 +923,8 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                         <a href="maintenance.php" class="primary-link" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Manage Maintenance</a>
                     </div>
 
-                    <table class="admin-table" style="width: 100%; font-size: 13px;">
+                    <div class="table-wrap">
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
@@ -947,6 +956,7 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    </div>
                 </div>
 
             <!-- TAB 7: FINANCIAL AUDIT LOGS -->
@@ -957,7 +967,8 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                         <p style="font-size: 13px; color: #64748b; margin-top: 4px;">Traceable security log recording actor, action, timestamp, amount, and business rationale.</p>
                     </div>
 
-                    <table class="admin-table" style="width: 100%; font-size: 13px;">
+                    <div class="table-wrap">
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Timestamp</th>
@@ -997,6 +1008,7 @@ $maxChartVal = !empty($dailyTrend) ? max($dailyTrend) : 1;
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    </div>
                 </div>
             <?php endif; ?>
         </main>

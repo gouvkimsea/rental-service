@@ -136,8 +136,8 @@ $activity = $conn->query("
     <div class="app-main">
         <header class="app-topbar">
             <div>
-                <a href="dashboard.php" class="logo"> <h1>Operations Overview</h1> </a>
-                <p class="subtitle"><?= date('l, F j, Y') ?> • Role: <strong><?= htmlspecialchars(strtoupper($currentUserRole)) ?></strong></p>
+                <h1 style="margin:0; font-size:22px; font-weight:800; color:var(--color-forest);">Operations Overview</h1>
+                <p class="subtitle" style="margin-top:2px; font-size:13px; color:#64748b;"><?= date('l, F j, Y') ?> &bull; Active Role: <strong><?= htmlspecialchars(strtoupper(str_replace('_', ' ', $currentUserRole))) ?></strong></p>
             </div>
             <div class="topbar-actions" style="display:flex; align-items:center; gap:10px;">
                 <a href="notifications.php" style="text-decoration:none; position:relative; background:#f1f5f9; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; color:#334155; display:inline-flex; align-items:center; gap:6px;">
@@ -147,8 +147,9 @@ $activity = $conn->query("
                     <?php endif; ?>
                 </a>
                 <?php if (RentalService::checkPermission($conn, $currentUserId, 'manage_vehicles')): ?>
-                    <a href="Product.php" class="primary-link">Inventory</a>
+                    <a href="Product.php" class="primary-link" style="padding:8px 14px; font-size:13px; text-decoration:none;">Vehicle Fleet</a>
                 <?php endif; ?>
+                <a href="Service.php" class="primary-link" style="background:#fff; color:var(--color-forest); border:1px solid var(--color-forest); padding:8px 14px; font-size:13px; text-decoration:none;">Storefront &rarr;</a>
             </div>
         </header>
 
@@ -156,48 +157,48 @@ $activity = $conn->query("
             <!-- Operational Control Strip -->
             <div class="ops-strip">
                 <a href="orders.php?status=upcoming_pickups" class="ops-card ops-card--info">
-                    <span class="ops-card-label">🚗 Upcoming Pickups (24h)</span>
-                    <span class="ops-card-val"><?= $operational['upcoming_pickups'] ?></span>
+                    <span class="ops-card-label">Upcoming Pickups (24h)</span>
+                    <span class="ops-card-val"><?= (int)$operational['upcoming_pickups'] ?></span>
                 </a>
                 <a href="orders.php?status=Active" class="ops-card">
-                    <span class="ops-card-label">🛣️ Active Rentals On-Road</span>
-                    <span class="ops-card-val"><?= $operational['active_rentals'] ?></span>
+                    <span class="ops-card-label">Active Rentals On-Road</span>
+                    <span class="ops-card-val"><?= (int)$operational['active_rentals'] ?></span>
                 </a>
                 <a href="orders.php?status=overdue_returns" class="ops-card <?= $operational['overdue_returns'] > 0 ? 'ops-card--alert' : '' ?>">
-                    <span class="ops-card-label">⚠️ Overdue Returns</span>
-                    <span class="ops-card-val"><?= $operational['overdue_returns'] ?></span>
+                    <span class="ops-card-label">Overdue Returns</span>
+                    <span class="ops-card-val"><?= (int)$operational['overdue_returns'] ?></span>
                 </a>
                 <a href="orders.php?status=maint_conflict" class="ops-card <?= $operational['maintenance_conflicts'] > 0 ? 'ops-card--alert' : '' ?>">
-                    <span class="ops-card-label">🚨 Maintenance Conflicts</span>
-                    <span class="ops-card-val"><?= $operational['maintenance_conflicts'] ?></span>
+                    <span class="ops-card-label">Maintenance Conflicts</span>
+                    <span class="ops-card-val"><?= (int)$operational['maintenance_conflicts'] ?></span>
                 </a>
                 <a href="maintenance.php" class="ops-card <?= $operational['vehicles_under_maintenance'] > 0 ? 'ops-card--warn' : '' ?>">
-                    <span class="ops-card-label">🛠️ Fleet In Service</span>
-                    <span class="ops-card-val"><?= $operational['vehicles_under_maintenance'] ?></span>
+                    <span class="ops-card-label">Fleet Under Service</span>
+                    <span class="ops-card-val"><?= (int)$operational['vehicles_under_maintenance'] ?></span>
                 </a>
             </div>
 
             <!-- Stats -->
             <section class="stat-grid">
                 <div class="stat-card">
-                    <div class="stat-card-head"><span>Revenue (30d)</span></div>
+                    <div class="stat-card-head"><span>30-Day Rental Revenue</span></div>
                     <strong>$<?= number_format($revenue, 2) ?></strong>
-                    <span class="delta delta--up">Last 30 days</span>
+                    <span style="font-size:12px; color:#64748b;">Completed &amp; active bookings</span>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-card-head"><span>Orders</span></div>
-                    <strong><?= $orders ?></strong>
-                    <span class="delta delta--up">Last 30 days</span>
+                    <div class="stat-card-head"><span>Total Orders (30d)</span></div>
+                    <strong><?= (int)$orders ?></strong>
+                    <span style="font-size:12px; color:#64748b;">Customer reservation requests</span>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-card-head"><span>New Customers</span></div>
-                    <strong><?= $new_customers ?></strong>
-                    <span class="delta delta--up">Last 30 days</span>
+                    <div class="stat-card-head"><span>New Customer Accounts</span></div>
+                    <strong><?= (int)$new_customers ?></strong>
+                    <span style="font-size:12px; color:#64748b;">Registered in last 30 days</span>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-card-head"><span>Avg. Order Value</span></div>
+                    <div class="stat-card-head"><span>Avg. Booking Value</span></div>
                     <strong>$<?= number_format($avg_order, 2) ?></strong>
-                    <span class="delta delta--up">Last 30 days</span>
+                    <span style="font-size:12px; color:#64748b;">Per verified reservation</span>
                 </div>
             </section>
 
@@ -206,7 +207,7 @@ $activity = $conn->query("
                 <div>
                     <!-- Revenue chart -->
                     <section class="panel">
-                        <div class="panel-head"><h2>Revenue This Week</h2></div>
+                        <div class="panel-head"><h2>Weekly Booking Revenue Trend</h2></div>
                         <div class="bar-chart">
                             <?php foreach ($days as $i => $day): ?>
                             <div class="bar-col">
@@ -219,54 +220,68 @@ $activity = $conn->query("
 
                     <!-- Recent orders -->
                     <section class="panel">
-                        <div class="panel-head"><h2>Recent Orders</h2><a href="orders.php">View all</a></div>
-                        <table class="data-table">
-                            <thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead>
-                            <tbody>
-                            <?php while ($row = $recent_orders->fetch_assoc()): ?>
-                            <tr>
-                                <td class="order-id">
-                                    <a href="order_detail.php?id=<?= $row['id'] ?>" style="font-family:monospace; font-weight:bold;">
-                                        <?= htmlspecialchars($row['booking_ref'] ?: '#' . $row['id']) ?>
-                                    </a>
-                                </td>
-                                <td><?= htmlspecialchars($row['customer']) ?></td>
-                                <td><span class="status-pill status-pill--<?= strtolower($row['status']) ?>"><?= ucfirst($row['status']) ?></span></td>
-                                <td>$<?= number_format($row['total_amount'], 2) ?></td>
-                            </tr>
-                            <?php endwhile; ?>
-                            </tbody>
-                        </table>
+                        <div class="panel-head"><h2>Recent Reservations</h2><a href="orders.php" style="font-size:13px; font-weight:600; color:var(--color-forest);">View All Orders &rarr;</a></div>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead><tr><th>Ref</th><th>Customer</th><th>Status</th><th style="text-align:right;">Amount</th></tr></thead>
+                                <tbody>
+                                <?php if ($recent_orders->num_rows === 0): ?>
+                                    <tr><td colspan="4" style="text-align:center; color:#64748b; padding:20px;">No recent bookings recorded.</td></tr>
+                                <?php else: ?>
+                                    <?php while ($row = $recent_orders->fetch_assoc()): ?>
+                                    <tr>
+                                        <td class="order-id">
+                                            <a href="order_detail.php?id=<?= $row['id'] ?>" style="font-family:monospace; font-weight:700;">
+                                                <?= htmlspecialchars($row['booking_ref'] ?: '#' . $row['id']) ?>
+                                            </a>
+                                        </td>
+                                        <td><?= htmlspecialchars($row['customer']) ?></td>
+                                        <td><span class="status-pill status-pill--<?= strtolower($row['status']) ?>"><?= htmlspecialchars($row['status']) ?></span></td>
+                                        <td style="text-align:right; font-weight:600;">$<?= number_format($row['total_amount'], 2) ?></td>
+                                    </tr>
+                                    <?php endwhile; ?>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     </section>
                 </div>
 
                 <!-- Sidebar column -->
                 <aside>
                     <section class="panel">
-                        <div class="panel-head"><h2>Top Products</h2></div>
-                        <?php while ($p = $top_products->fetch_assoc()): ?>
-                        <div class="product-list-item">
-                            <div class="product-list-thumb" style="background:var(--color-sage);"></div>
-                            <div>
-                                <p class="name"><?= htmlspecialchars($p['name']) ?></p>
-                                <p class="units"><?= $p['units'] ?> units sold</p>
+                        <div class="panel-head"><h2>Top Rented Vehicles</h2></div>
+                        <?php if ($top_products->num_rows === 0): ?>
+                            <p style="padding:16px; color:#64748b; font-size:13px; margin:0;">No vehicle rental metrics recorded yet.</p>
+                        <?php else: ?>
+                            <?php while ($p = $top_products->fetch_assoc()): ?>
+                            <div class="product-list-item">
+                                <div class="product-list-thumb" style="background:var(--color-forest); display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; font-weight:700; border-radius:6px;">🚗</div>
+                                <div>
+                                    <p class="name" style="font-weight:600;"><?= htmlspecialchars($p['name']) ?></p>
+                                    <p class="units" style="font-size:12px; color:#64748b;"><?= (int)$p['units'] ?> rental booking(s)</p>
+                                </div>
+                                <span class="revenue" style="font-weight:700; color:var(--color-forest);">$<?= number_format($p['revenue'], 2) ?></span>
                             </div>
-                            <span class="revenue">$<?= number_format($p['revenue'], 2) ?></span>
-                        </div>
-                        <?php endwhile; ?>
+                            <?php endwhile; ?>
+                        <?php endif; ?>
                     </section>
 
                     <section class="panel">
-                        <div class="panel-head"><h2>Recent Activity</h2></div>
-                        <?php while ($act = $activity->fetch_assoc()): ?>
-                        <div class="activity-item">
-                            <span class="activity-dot"></span>
-                            <div>
-                                <p><?= $act['action'] ?> <strong>#<?= $act['order_id'] ?></strong> by <?= htmlspecialchars($act['customer']) ?></p>
-                                <time><?= time_elapsed_string($act['time']) ?></time>
+                        <div class="panel-head"><h2>Recent Activity Log</h2></div>
+                        <?php if ($activity->num_rows === 0): ?>
+                            <p style="padding:16px; color:#64748b; font-size:13px; margin:0;">No recent activity.</p>
+                        <?php else: ?>
+                            <?php while ($act = $activity->fetch_assoc()): ?>
+                            <div class="activity-item">
+                                <span class="activity-dot"></span>
+                                <div>
+                                    <p style="margin:0 0 3px 0; font-size:13px;"><?= htmlspecialchars($act['action']) ?> <strong>#<?= (int)$act['order_id'] ?></strong> by <?= htmlspecialchars($act['customer']) ?></p>
+                                    <time style="font-size:11px; color:#64748b;"><?= time_elapsed_string($act['time']) ?></time>
+                                </div>
                             </div>
-                        </div>
-                        <?php endwhile; ?>
+                            <?php endwhile; ?>
+                        <?php endif; ?>
                     </section>
                 </aside>
             </div>

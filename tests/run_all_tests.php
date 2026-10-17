@@ -12,7 +12,9 @@ $suites = [
     'Operational Management & RBAC'          => __DIR__ . '/operational_management_tests.php',
     'Financial Operations & Ledger'         => __DIR__ . '/financial_operations_tests.php',
     'End-to-End Production Verification'    => __DIR__ . '/production_e2e_tests.php',
+    'UI Rendering & View Integrations'      => __DIR__ . '/render_test.php',
 ];
+
 
 $results = [];
 $totalPassed = 0;

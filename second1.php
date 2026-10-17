@@ -316,4 +316,3 @@ if ($category_id > 0) {
 <script src="script.js" defer></script>
 </body>
 </html>
-<?php $conn->close(); ?>
